@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{01F54E1C-5B47-4182-A2ED-70A38FB083AB}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="cocinasync.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Tests\cocinasync_tests.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="cocinasync">
+        <MSBuild Projects="cocinasync.dproj"/>
+    </Target>
+    <Target Name="cocinasync:Clean">
+        <MSBuild Projects="cocinasync.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="cocinasync:Make">
+        <MSBuild Projects="cocinasync.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="cocinasync_tests">
+        <MSBuild Projects="Tests\cocinasync_tests.dproj"/>
+    </Target>
+    <Target Name="cocinasync_tests:Clean">
+        <MSBuild Projects="Tests\cocinasync_tests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="cocinasync_tests:Make">
+        <MSBuild Projects="Tests\cocinasync_tests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="cocinasync;cocinasync_tests"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="cocinasync:Clean;cocinasync_tests:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="cocinasync:Make;cocinasync_tests:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

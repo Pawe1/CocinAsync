@@ -1,0 +1,9 @@
+__history/
+Tests/__recovery/__recovery.ini
+Tests/Win32/
+Tests/Win64/Debug/cocinasync.jobs.dcu
+Tests/Win64/
+Win32/
+Tests/Android/
+*.local
+*.stat
