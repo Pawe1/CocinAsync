@@ -135,14 +135,17 @@ begin
     finally
       async.Free;
     end;
-    if iCnt > 0 then
-      Assert.Pass
-    else
-      Assert.Fail('DoEvery Did not run');
   except
     on E : Exception do
+    begin
       Assert.Fail(E.Message);
+      exit;
+    end;
   end;
+  if iCnt > 0 then
+    Assert.Pass
+  else
+    Assert.Fail('DoEvery Did not run');
 end;
 
 initialization
