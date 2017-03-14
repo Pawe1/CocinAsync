@@ -8,3 +8,4 @@ Tests/Android/
 *.local
 *.stat
 *.res
+*.dcu
