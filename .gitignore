@@ -7,3 +7,4 @@ Win32/
 Tests/Android/
 *.local
 *.stat
+*.res

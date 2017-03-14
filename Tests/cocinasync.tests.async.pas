@@ -30,7 +30,7 @@ type
 
 implementation
 
-uses System.SysUtils, System.DateUtils;
+uses System.SysUtils, System.DateUtils, SyncObjs;
 
 procedure TestTAsync.OnDo;
 var
@@ -78,7 +78,7 @@ begin
       bDone := True;
     end
   );
-  Sleep(110);
+  Sleep(210);
   Assert.AreEqual(True, bDone);
 end;
 
@@ -117,8 +117,32 @@ begin
 end;
 
 procedure TestTAsync.EarlyFree;
+var
+  async : TAsync;
+  iCnt : integer;
 begin
-
+  try
+    iCnt := 0;
+    async := TAsync.Create;
+    try
+      async.DoEvery(10,
+        function : boolean
+        begin
+          TInterlocked.Increment(iCnt);
+        end
+      );
+      sleep(100);
+    finally
+      async.Free;
+    end;
+    if iCnt > 0 then
+      Assert.Pass
+    else
+      Assert.Fail('DoEvery Did not run');
+  except
+    on E : Exception do
+      Assert.Fail(E.Message);
+  end;
 end;
 
 initialization

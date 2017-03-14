@@ -15,6 +15,7 @@ type
   TAsync = class(TObject)
   strict private
     FCounter : TThreadCounter;
+    FTerminating : boolean;
   public
     class function CreateMREWSync : IMREWSync;
     class procedure SynchronizeIfInThread(const proc : TProc);
@@ -152,6 +153,7 @@ constructor TAsync.Create;
 begin
   inherited Create;
   FCounter := TThreadCounter.Create;
+  FTerminating := False;
 end;
 
 class function TAsync.CreateMREWSync : IMREWSync;
@@ -193,6 +195,8 @@ type
 
 destructor TAsync.Destroy;
 begin
+  FTerminating := True;
+  FCounter.WaitForAll;
   FCounter.Free;
   inherited;
 end;
@@ -209,6 +213,8 @@ begin
         bContinue := True;
         while not TThreadHack(TThread.Current).Terminated do
         begin
+          if FTerminating then
+            Exit;
           sleep(MS);
           if SynchronizedDo then
             SynchronizeIfInThread(
@@ -236,6 +242,8 @@ begin
   TThread.CreateAnonymousThread(
     procedure
     begin
+      if FTerminating then
+        Exit;
       FCounter.NotifyThreadStart;
       try
         sleep(After);
@@ -260,6 +268,8 @@ begin
   TThread.CreateAnonymousThread(
     procedure
     begin
+      if FTerminating then
+        Exit;
       FCounter.NotifyThreadStart;
       try
         if SynchronizedDo then
@@ -295,7 +305,11 @@ begin
       FCounter.NotifyThreadStart;
       try
         repeat
+          if FTerminating then
+            Exit;
           repeat
+            if FTerminating then
+              Exit;
             if SynchronizedOn then
               SynchronizeIfInThread(
                 procedure
@@ -310,6 +324,8 @@ begin
             sleep(CheckInterval)
           until bOn;
 
+          if FTerminating then
+            Exit;
           if SynchronizedDo then
             SynchronizeIfInThread(
               procedure

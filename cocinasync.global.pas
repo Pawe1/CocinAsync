@@ -21,6 +21,7 @@ type
     procedure NotifyThreadEnd;
     property ThreadCount : Integer read FThreadCount;
 
+    procedure WaitForAll(Timeout : Cardinal = 0);
     class property Global : TThreadCounter read FGlobal;
   end;
 
@@ -36,6 +37,8 @@ type
   end;
 
 implementation
+
+uses DateUtils;
 
 { TCocinAsync }
 
@@ -74,6 +77,18 @@ begin
   if FTerminating then
     Abort;
   TInterlocked.Increment(FThreadCount);
+end;
+
+procedure TThreadCounter.WaitForAll(Timeout: Cardinal);
+var
+  dtStart : TDateTime;
+begin
+  dtStart := Now;
+  while (FThreadCount > 0) and
+        (  (Timeout = 0) or
+           ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) >= Timeout))
+        ) do
+    sleep(10);
 end;
 
 { TConsoleSync }
