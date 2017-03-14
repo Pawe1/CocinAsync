@@ -23,7 +23,7 @@ type
     procedure AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true);
     procedure DoLater(const &Do : TProc; SynchronizedDo : boolean = true);
     procedure OnDo(const &On : TFunc<Boolean>; const &Do : TProc; CheckInterval : integer = 1000; &Repeat : TFunc<boolean> = nil; SynchronizedOn : boolean = false; SynchronizedDo : boolean = true);
-    function DoEvery(const MS : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true) : TThread;
+    function DoEvery(const MS : Cardinal; const &Do : TFunc<Boolean>; SynchronizedDo : boolean = true) : TThread;
 
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
@@ -197,13 +197,16 @@ begin
   inherited;
 end;
 
-function TAsync.DoEvery(const MS : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true) : TThread;
+function TAsync.DoEvery(const MS : Cardinal; const &Do : TFunc<Boolean>; SynchronizedDo : boolean = true) : TThread;
 begin
   Result := TThread.CreateAnonymousThread(
     procedure
+    var
+      bContinue : boolean;
     begin
       FCounter.NotifyThreadStart;
       try
+        bContinue := True;
         while not TThreadHack(TThread.Current).Terminated do
         begin
           sleep(MS);
@@ -211,11 +214,13 @@ begin
             SynchronizeIfInThread(
               procedure
               begin
-                &Do();
+                bContinue := &Do();
               end
             )
           else
-            &Do();
+            bContinue := &Do();
+          if not bContinue then
+            break;
         end;
       finally
         FCounter.NotifyThreadEnd;

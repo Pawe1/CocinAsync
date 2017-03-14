@@ -2,7 +2,7 @@ unit cocinasync.global;
 
 interface
 
-uses System.Classes;
+uses System.SysUtils, System.Classes, System.SyncObjs;
 
 type
   TThreadCounter = class(TObject)
@@ -24,9 +24,18 @@ type
     class property Global : TThreadCounter read FGlobal;
   end;
 
-implementation
+  TConsole = class(TObject)
+  private
+    FEvent : TEvent;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Wake(Sender : TObject);
+    procedure CheckSynchronize;
+    class procedure ApplicationLoop(&Until : TFunc<Boolean>);
+  end;
 
-uses System.SysUtils, System.SyncObjs;
+implementation
 
 { TCocinAsync }
 
@@ -65,6 +74,46 @@ begin
   if FTerminating then
     Abort;
   TInterlocked.Increment(FThreadCount);
+end;
+
+{ TConsoleSync }
+
+procedure TConsole.CheckSynchronize;
+begin
+  FEvent.WaitFor;
+  System.Classes.CheckSynchronize;
+end;
+
+constructor TConsole.Create;
+begin
+  inherited Create;
+  FEvent := TEvent.Create;
+  WakeMainThread := Wake;
+end;
+
+destructor TConsole.Destroy;
+begin
+  FEvent.Free;
+  inherited;
+end;
+
+class procedure TConsole.ApplicationLoop(&Until: TFunc<Boolean>);
+var
+  CS : TConsole;
+begin
+  CS := TConsole.Create;
+  try
+    repeat
+      CS.CheckSynchronize;
+    until not &Until();
+  finally
+    CS.Free;
+  end;
+end;
+
+procedure TConsole.Wake(Sender: TObject);
+begin
+  FEvent.SetEvent;
 end;
 
 initialization
