@@ -120,6 +120,8 @@ procedure TestTAsync.EarlyFree;
 var
   async : TAsync;
   iCnt : integer;
+  DoLaterProc : TProc;
+  DoAfterProc : TProc;
 begin
   try
     iCnt := 0;
@@ -129,6 +131,27 @@ begin
         function : boolean
         begin
           TInterlocked.Increment(iCnt);
+        end
+      );
+
+      DoAfterProc :=
+        procedure
+        begin
+          async.AfterDo(10, DoAfterPRoc);
+        end;
+      DoAfterProc();
+
+      DoLaterProc :=
+        procedure
+        begin
+          async.DoLater(DoLaterProc);
+        end;
+      DoLaterProc();
+
+      async.DoEvery(10,
+        function : boolean
+        begin
+          Result := True;
         end
       );
       sleep(100);
