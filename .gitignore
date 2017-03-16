@@ -9,3 +9,4 @@ Tests/Android/
 *.stat
 *.res
 *.dcu
+*.identcache
