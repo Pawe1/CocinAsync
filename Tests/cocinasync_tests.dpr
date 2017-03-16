@@ -14,7 +14,8 @@ uses
   DUnitX.Loggers.Xml.NUnit,
   DUnitX.TestFramework,
   cocinasync.tests.jobs in 'cocinasync.tests.jobs.pas',
-  cocinasync.tests.async in 'cocinasync.tests.async.pas';
+  cocinasync.tests.async in 'cocinasync.tests.async.pas',
+  cocinasync.tests.collections in 'cocinasync.tests.collections.pas';
 
 var
   runner : ITestRunner;
@@ -25,6 +26,7 @@ var
   bFinished : boolean;
   Ex : Exception;
 begin
+  ReportMemoryLeaksOnShutdown := True;
 {$IFDEF TESTINSIGHT}
   TestInsight.DUnitX.RunRegisteredTests;
   exit;
