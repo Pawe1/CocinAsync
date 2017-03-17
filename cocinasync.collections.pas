@@ -48,7 +48,8 @@ type
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     function GetMap(Key: K): V;
-    procedure SetMap(Key: K; const Value: V);
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem); overload; inline;
+    procedure SetMap(Key: K; const Value: V); overload;
     function GetHas(Key: K): boolean;
     function GetHash(Key : K) : Integer; inline;
   public
@@ -209,15 +210,19 @@ begin
     Result := V(nil);
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem);
 var
   p, pNew, pDisp, pPrior : PItem;
   idx : Integer;
   bSuccess : boolean;
 begin
-  New(pNew);
-  pNew.Key := Key;
-  pNew.Value := Value;
+  if NewItem = nil then
+  begin
+    New(pNew);
+    pNew.Key := Key;
+    pNew.Value := Value;
+  end else
+    pNew := NewItem;
 
   idx := GetHash(Key);
   p := FItems[idx];
@@ -237,8 +242,7 @@ begin
         TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
         if not bSuccess then
         begin
-          Dispose(pNew);
-          SetMap(Key,Value);
+          SetMap(Key,Value, pNew);
         end;
       end else // Key Found, updating
       begin
@@ -247,8 +251,7 @@ begin
         TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
         if not bSuccess then
         begin
-          Dispose(pNew);
-          SetMap(Key,Value);
+          SetMap(Key,Value, pNew);
         end else
         begin
           Dispose(pDisp);
@@ -261,10 +264,14 @@ begin
   TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
   if not bSuccess then
   begin
-    Dispose(pNew);
-    SetMap(Key, Value);
+    SetMap(Key, Value, pNew);
     exit;
   end;
+end;
+
+procedure THash<K, V>.SetMap(Key: K; const Value: V);
+begin
+  SetMap(Key, Value, nil);
 end;
 
 end.
