@@ -28,9 +28,9 @@ type
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
-    procedure Push(const Value: T); //inline;
-    function Pop: T; //inline;
-    function Peek: T; //inline;
+    procedure Push(const Value: T); inline;
+    function Pop: T; inline;
+    function Peek: T; inline;
     procedure Clear;
   end;
 
@@ -50,7 +50,7 @@ type
     function GetMap(Key: K): V;
     procedure SetMap(Key: K; const Value: V);
     function GetHas(Key: K): boolean;
-    function GetHash(Key : K) : Integer; //inline;
+    function GetHash(Key : K) : Integer; inline;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
