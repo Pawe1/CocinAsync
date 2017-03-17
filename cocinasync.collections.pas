@@ -2,7 +2,10 @@ unit cocinasync.collections;
 
 interface
 
-uses System.SysUtils, System.Classes, System.SyncObjs;
+uses System.SysUtils, System.Classes, System.SyncObjs, System.Generics.Defaults;
+
+const
+  HASH_ARRAY_SIZE = 16384;
 
 type
   TInterlockedHelper = class helper for TInterlocked
@@ -29,6 +32,33 @@ type
     function Pop: T; //inline;
     function Peek: T; //inline;
     procedure Clear;
+  end;
+
+  THash<K,V> = class(TObject)
+  strict private
+    type
+    PItem = ^TItem;
+    TItem = record
+      Key: K;
+      Value: V;
+      Next: Pointer;
+    end;
+    TItemArray = array[0..HASH_ARRAY_SIZE-1] of Pointer;
+  strict private
+    FItems: TItemArray;
+    FComparer : IEqualityComparer<K>;
+    function GetMap(Key: K): V;
+    procedure SetMap(Key: K; const Value: V);
+    function GetHas(Key: K): boolean;
+    function GetHash(Key : K) : Integer; //inline;
+  public
+    constructor Create; reintroduce; virtual;
+    destructor Destroy; override;
+
+    procedure Delete(const Key : K);
+    procedure AddOrUpdate(const Key : K; const Value : V);
+    property Has[Key : K] : boolean read GetHas;
+    property Map[Key : K] : V read GetMap write SetMap; default;
   end;
 
 implementation
@@ -109,6 +139,132 @@ begin
   p := New(PStackPointer);
   PStackPointer(p)^.FData := Value;
   PStackPointer(p).FPrior := TInterlocked.Exchange(FTop,p);
+end;
+
+{ THash<K, V> }
+
+procedure THash<K, V>.AddOrUpdate(const Key: K; const Value: V);
+begin
+  SetMap(Key, Value);
+end;
+
+constructor THash<K, V>.Create;
+var
+  i: Integer;
+begin
+  inherited Create;
+  FComparer := TEqualityComparer<K>.Default;
+  for i := Low(FItems) to High(FItems) do
+    FItems[i] := nil;
+end;
+
+procedure THash<K, V>.Delete(const Key: K);
+begin
+  SetMap(Key, V(nil));
+end;
+
+destructor THash<K, V>.Destroy;
+var
+  i: Integer;
+begin
+  for i := Low(FItems) to High(FItems) do
+    if FItems[i] <> nil then
+      Dispose(FItems[i]);
+  inherited;
+end;
+
+function THash<K, V>.GetHas(Key: K): boolean;
+var
+  val : V;
+begin
+  val := GetMap(Key);
+  Result := @val <> nil;
+end;
+
+function THash<K, V>.GetHash(Key: K): Integer;
+begin
+  result := ((not Integer($80000000)) and FComparer.GetHashCode(Key)) mod HASH_ARRAY_SIZE;
+end;
+
+function THash<K, V>.GetMap(Key: K): V;
+var
+  p : PItem;
+begin
+  p := FItems[GetHash(Key)];
+  if p <> nil then
+  begin
+    if not FComparer.Equals(p.Key, Key) then
+    begin
+      repeat
+        p := p.Next;
+      until (p = nil) or FComparer.Equals(p.Key, Key);
+
+      if p <> nil then
+        Result := p.Value
+      else
+        Result := V(nil);
+    end else
+      Result := p.Value;
+  end else
+    Result := V(nil);
+end;
+
+procedure THash<K, V>.SetMap(Key: K; const Value: V);
+var
+  p, pNew, pDisp, pPrior : PItem;
+  idx : Integer;
+  bSuccess : boolean;
+begin
+  New(pNew);
+  pNew.Key := Key;
+  pNew.Value := Value;
+
+  idx := GetHash(Key);
+  p := FItems[idx];
+  pNew.Next := p;
+  pPrior := nil;
+  if p <> nil then
+  begin
+    if not FComparer.Equals(p.Key, Key) then
+    begin
+      repeat
+        pPrior := p;
+        p := p.Next;
+      until (p = nil) or FComparer.Equals(p.Key, Key);
+      if p = nil then // New Key not found in list.
+      begin
+        pNew.Next := p;
+        TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+        if not bSuccess then
+        begin
+          Dispose(pNew);
+          SetMap(Key,Value);
+        end;
+      end else // Key Found, updating
+      begin
+        pDisp := p;
+        pNew.Next := p^.Next;
+        TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+        if not bSuccess then
+        begin
+          Dispose(pNew);
+          SetMap(Key,Value);
+        end else
+        begin
+          Dispose(pDisp);
+        end;
+      end;
+      exit;
+    end;
+  end;
+  // New Key at position, add a new one.
+  TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
+  if not bSuccess then
+  begin
+    Dispose(pNew);
+    SetMap(Key, Value);
+    exit;
+  end;
 end;
 
 end.
