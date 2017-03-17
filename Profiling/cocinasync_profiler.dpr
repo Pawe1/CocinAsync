@@ -5,6 +5,7 @@ program cocinasync_profiler;
 {$R *.res}
 
 uses
+  ScaleMM2,
   System.SysUtils,
   System.Classes,
   cocinasync.global,

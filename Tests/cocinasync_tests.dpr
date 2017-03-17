@@ -4,6 +4,7 @@ program cocinasync_tests;
 {$APPTYPE CONSOLE}
 {$ENDIF}{$STRONGLINKTYPES ON}
 uses
+  ScaleMM2,
   SysUtils,
   Classes,
   {$IFDEF TESTINSIGHT}
