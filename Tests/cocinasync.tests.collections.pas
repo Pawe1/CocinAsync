@@ -201,7 +201,7 @@ begin
                 FStack.Push(obj);
                 TInterlocked.Increment(iEndCount);
               end;
-              for j := 1 to ItemsCount do
+              for j := ItemsCount downto 1 do
               begin
                 obj := FStack.Pop;
                 if Assigned(obj) then
