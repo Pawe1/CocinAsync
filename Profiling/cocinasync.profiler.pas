@@ -6,7 +6,7 @@ uses System.SysUtils, System.Classes, System.Diagnostics;
 
 type
   TLogProc = reference to procedure(const msg : string);
-  TTestProc = reference to procedure(CLog, DLog : TStrings);
+  TTestProc = reference to procedure(CLog, DLog, TLog : TStrings);
 
   TProfiles = class
   strict private
@@ -33,12 +33,12 @@ class procedure TProfiles.DoTest(RunCount : Integer; const Log: TLogProc);
     DoHashIteration(RunCount, 100, iCnt, Log);
     DoHashIteration(RunCount, 1000, iCnt, Log);
     DoHashIteration(RunCount, 10000, iCnt, Log);
-    DoHashIteration(RunCount, 100000, iCnt, Log);
+//    DoHashIteration(RunCount, 100000, iCnt, Log);
     DoStackIteration(RunCount, 1, iCnt, Log);
     DoStackIteration(RunCount, 100, iCnt, Log);
     DoStackIteration(RunCount, 1000, iCnt, Log);
     DoStackIteration(RunCount, 10000, iCnt, Log);
-    DoStackIteration(RunCount, 100000, iCnt, Log);
+//    DoStackIteration(RunCount, 100000, iCnt, Log);
     Log('------------------');
     Log('');
     Log('');
@@ -60,7 +60,7 @@ begin
   Log('Hash '+IterationSize.ToString+' Each');
   SetupTest('Hash'#9'Strings'#9'Ints'#9'Intfs'#9'Lkps',
     Log,
-    procedure(CLog, DLog : TStrings)
+    procedure(CLog, DLog, TLog : TStrings)
     var
       chs : THash<String,Integer>;
       chi : THash<Integer,Integer>;
@@ -246,6 +246,10 @@ begin
         CLog.Add((iTimeCHI div RunCnt).ToString);
         CLog.Add((iTimeCHO div RunCnt).ToString);
         CLog.Add((iTimeCHL div RunCnt).ToString);
+        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
 
       finally
         chs.Free;
@@ -265,7 +269,7 @@ begin
   Log('Stack '+IterationSize.ToString+' Each');
   SetupTest('Stack'#9'Strings'#9'Ints'#9'Intfs'#9'Pops',
     Log,
-    procedure(CLog, DLog : TStrings)
+    procedure(CLog, DLog, TLog : TStrings)
     var
       chs : cocinasync.collections.TStack<String>;
       chi : cocinasync.collections.TStack<Integer>;
@@ -457,7 +461,10 @@ begin
         CLog.Add((iTimeCHI div RunCnt).ToString);
         CLog.Add((iTimeCHO div RunCnt).ToString);
         CLog.Add((iTimeCHL div RunCnt).ToString);
-
+        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
+        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
       finally
         chs.Free;
         chi.Free;
@@ -474,21 +481,25 @@ end;
 class procedure TProfiles.SetupTest(const LogHeader: string; const Log : TLogProc;
   const TestProc: TTestProc);
 var
-  slC, slD: TStringList;
+  slC, slD, slT: TStringList;
 begin
   slC := TStringList.Create;
   slD := TStringList.Create;
+  slT := TStringList.Create;
   try
     slC.Delimiter := #9;
     slD.Delimiter := #9;
-    TestProc(slC, slD);
+    slT.Delimiter := #9;
+    TestProc(slC, slD, slT);
     log(LogHeader);
     log('CocinA'#9+slC.DelimitedText);
     log('Delphi'#9+slD.DelimitedText);
+    log('%Imprv'#9+slT.DelimitedText);
     log('');
   finally
     slC.Free;
     slD.Free;
+    slT.Free;
   end;
 end;
 
