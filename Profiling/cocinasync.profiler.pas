@@ -58,7 +58,7 @@ end;
 class procedure TProfiles.DoHashIteration(RunCnt, IterationSize : integer; ThreadCount : Integer; const Log : TLogProc);
 begin
   Log('Hash '+IterationSize.ToString+' Each');
-  SetupTest('Hash'#9'Strings'#9'Ints'#9'Intfs'#9'Lkps',
+  SetupTest('Strings'#9'Ints'#9'Intfs'#9'Lkps',
     Log,
     procedure(CLog, DLog, TLog : TStrings)
     var
@@ -267,16 +267,16 @@ end;
 class procedure TProfiles.DoStackIteration(RunCnt, IterationSize : integer; ThreadCount : Integer; const Log : TLogProc);
 begin
   Log('Stack '+IterationSize.ToString+' Each');
-  SetupTest('Stack'#9'Strings'#9'Ints'#9'Intfs'#9'Pops',
+  SetupTest('Strings'#9'Ints'#9'Objs'#9'Pops',
     Log,
     procedure(CLog, DLog, TLog : TStrings)
     var
       chs : cocinasync.collections.TStack<String>;
       chi : cocinasync.collections.TStack<Integer>;
-      cho : cocinasync.collections.TStack<IInterface>;
+      cho : cocinasync.collections.TStack<TObject>;
       dhs : system.generics.collections.TStack<String>;
       dhi : system.generics.collections.TStack<Integer>;
-      dho : system.generics.collections.TStack<IInterface>;
+      dho : system.generics.collections.TStack<TObject>;
       dhcs : TCriticalSection;
       p : TParallel.TLoopResult;
       iThreadsComplete : integer;
@@ -295,10 +295,10 @@ begin
       iTimeCHL := 0;
       chs := cocinasync.collections.TStack<String>.Create;
       chi := cocinasync.collections.TStack<Integer>.Create;
-      cho := cocinasync.collections.TStack<IInterface>.Create;
+      cho := cocinasync.collections.TStack<TObject>.Create;
       dhs := system.generics.collections.TStack<String>.Create;
       dhi := system.generics.collections.TStack<Integer>.Create;
-      dho := system.generics.collections.TStack<IInterface>.Create;
+      dho := system.generics.collections.TStack<TObject>.Create;
       dhcs := TCriticalSection.Create;
       try
         for i := 1 to RunCnt do
@@ -380,7 +380,7 @@ begin
                   if ThreadCount > 1 then
                     dhcs.Enter;
                   try
-                    dho.Push(TInterfacedObject.Create);
+                    dho.Push(dho);
                   finally
                     if ThreadCount > 1 then
                       dhcs.Leave;
@@ -396,7 +396,7 @@ begin
 
                 sw := TStopwatch.StartNew;
                 for i := 1 to IterationSize do
-                  cho.Push(TInterfacedObject.Create);
+                  cho.Push(cho);
                 sw.Stop;
                 TAsync.SynchronizeIfInThread(
                   procedure
@@ -453,14 +453,14 @@ begin
             sleep(10);
         end;
 
-        DLog.Add((iTimeDHS div RunCnt).ToString);
-        DLog.Add((iTimeDHI div RunCnt).ToString);
-        DLog.Add((iTimeDHO div RunCnt).ToString);
-        DLog.Add((iTimeDHL div RunCnt).ToString);
-        CLog.Add((iTimeCHS div RunCnt).ToString);
-        CLog.Add((iTimeCHI div RunCnt).ToString);
-        CLog.Add((iTimeCHO div RunCnt).ToString);
-        CLog.Add((iTimeCHL div RunCnt).ToString);
+        DLog.Add((Round(iTimeDHS / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHI / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHO / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHL / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHS / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
         TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
         TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
         TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
@@ -480,23 +480,47 @@ end;
 
 class procedure TProfiles.SetupTest(const LogHeader: string; const Log : TLogProc;
   const TestProc: TTestProc);
+  procedure RightAlignAll(sl : TStrings);
+  var
+    i: Integer;
+    s : string;
+  begin
+    for i := 0 to sl.Count-1 do
+    begin
+      s := sl[i];
+      while length(s) < 10 do
+        s := ' '+s;
+      sl[i] := s;
+
+    end;
+  end;
 var
-  slC, slD, slT: TStringList;
+  slH, slC, slD, slT: TStringList;
 begin
+  slH := TStringList.Create;
   slC := TStringList.Create;
   slD := TStringList.Create;
   slT := TStringList.Create;
   try
-    slC.Delimiter := #9;
-    slD.Delimiter := #9;
-    slT.Delimiter := #9;
     TestProc(slC, slD, slT);
-    log(LogHeader);
-    log('CocinA'#9+slC.DelimitedText);
-    log('Delphi'#9+slD.DelimitedText);
-    log('%Imprv'#9+slT.DelimitedText);
+    slH.DelimitedText := LogHeader;
+    while slH.Count < slC.Count do
+      slH.Insert(0,'');
+    slH.Insert(0,'');
+    slC.Insert(0,'CocinA');
+    slD.Insert(0,'Delphi');
+    slT.Insert(0,'%Imprv');
+    RightAlignAll(slH);
+    RightAlignAll(slC);
+    RightAlignAll(slD);
+    RightAlignAll(slT);
+    log(slH.Text.Replace(#13#10,''));
+    log(slC.Text.Replace(#13#10,''));
+    log(slD.Text.Replace(#13#10,''));
+    log(slT.Text.Replace(#13#10,''));
     log('');
   finally
+    slH.Free;
     slC.Free;
     slD.Free;
     slT.Free;
