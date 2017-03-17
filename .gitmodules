@@ -1,0 +1,3 @@
+[submodule "common/scalemm"]
+	path = common/scalemm
+	url = https://github.com/andremussche/scalemm
