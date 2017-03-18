@@ -24,12 +24,13 @@ type
   strict private
     FTop : Pointer;
     FFirst : Pointer;
+    function Pop(Depth : integer) : T; overload; inline;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
     procedure Push(const Value: T); inline;
-    function Pop: T; inline;
+    function Pop: T; overload; inline;
     function Peek: T; inline;
     procedure Clear;
   end;
@@ -52,17 +53,30 @@ type
     procedure SetMap(Key: K; const Value: V); overload;
     function GetHas(Key: K): boolean;
     function GetHash(Key : K) : Integer; inline;
+    function CalcDepth(item: PItem): integer; inline;
+  public
+    type
+      TDepth = record
+        EmptyCnt : integer;
+        MaxDepth : integer;
+        Average  : integer;
+        AvgFilled : integer;
+        Size : integer;
+      end;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
+    function DebugDepth : TDepth;
     procedure Delete(const Key : K);
-    procedure AddOrUpdate(const Key : K; const Value : V);
+    procedure AddOrSetValue(const Key : K; const Value : V);
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
   end;
 
 implementation
+
+uses Math;
 
 class function TInterlockedHelper.CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
 begin
@@ -109,7 +123,7 @@ begin
     Result := T(nil);
 end;
 
-function TStack<T>.Pop: T;
+function TStack<T>.Pop(Depth: integer): T;
 var
   p, pTop : PStackPointer;
   iCnt : integer;
@@ -124,28 +138,43 @@ begin
       Result := p^.FData;
       Dispose(pTop);
     end else
-      Result := Pop;
+    begin
+      Sleep(Depth);
+      Result := Pop(Depth+1);
+    end;
   end else
     Result := T(nil);
+end;
+
+function TStack<T>.Pop: T;
+begin
+  Result := Pop(0);
 end;
 
 procedure TStack<T>.Push(const Value: T);
 var
   ptop, p : Pointer;
   bSuccess : boolean;
+  iSleep : integer;
 begin
   p := New(PStackPointer);
   PStackPointer(p)^.FData := Value;
   bSuccess := False;
+  iSleep := 0;
   repeat
     PStackPointer(p).FPrior := FTop;
     TInterlocked.CompareExchange(FTop,p,PStackPointer(p).FPrior,bSuccess);
+    if not bSuccess then
+    begin
+      sleep(iSleep);
+      inc(iSleep);
+    end;
   until bSuccess;
 end;
 
 { THash<K, V> }
 
-procedure THash<K, V>.AddOrUpdate(const Key: K; const Value: V);
+procedure THash<K, V>.AddOrSetValue(const Key: K; const Value: V);
 begin
   SetMap(Key, Value);
 end;
@@ -158,6 +187,40 @@ begin
   FComparer := TEqualityComparer<K>.Default;
   for i := Low(FItems) to High(FItems) do
     FItems[i] := nil;
+end;
+
+function THash<K, V>.CalcDepth(item : PItem) : integer;
+begin
+  Result := 1;
+  while (item <> nil) and (item.Next <> nil) do
+  begin
+    inc(Result);
+    item := item.Next;
+  end;
+end;
+
+function THash<K, V>.DebugDepth: TDepth;
+var
+  i, iDepth : integer;
+begin
+  Result.EmptyCnt := 0;
+  Result.MaxDepth := 0;
+  Result.Average := 0;
+  Result.AvgFilled := 0;
+  Result.Size := HASH_ARRAY_SIZE;
+  for i := 0 to HASH_ARRAY_SIZE-1 do
+  begin
+    if FItems[i] <> nil then
+    begin
+      iDepth := CalcDepth(FItems[I]);
+      Result.MaxDepth := Max(Result.MaxDepth, iDepth);
+      inc(Result.Average,iDepth);
+      inc(Result.AvgFilled, iDepth);
+    end else
+      Inc(Result.EmptyCnt);
+  end;
+  Result.Average := Result.Average div HASH_ARRAY_SIZE;
+  Result.AvgFilled := Result.AvgFilled div (HASH_ARRAY_SIZE - Result.EmptyCnt);
 end;
 
 procedure THash<K, V>.Delete(const Key: K);
