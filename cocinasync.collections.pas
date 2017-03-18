@@ -118,10 +118,6 @@ begin
   pTop := FTop;
   if (pTop <> nil) and (pTop <> FFirst) then
   begin
-    while (pTop.FPrior = nil) do
-    begin
-      sleep(1);
-    end;
     p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
     if bSucceeded then
     begin
@@ -136,10 +132,15 @@ end;
 procedure TStack<T>.Push(const Value: T);
 var
   ptop, p : Pointer;
+  bSuccess : boolean;
 begin
   p := New(PStackPointer);
   PStackPointer(p)^.FData := Value;
-  PStackPointer(p).FPrior := TInterlocked.Exchange(FTop,p);
+  bSuccess := False;
+  repeat
+    PStackPointer(p).FPrior := FTop;
+    TInterlocked.CompareExchange(FTop,p,PStackPointer(p).FPrior,bSuccess);
+  until bSuccess;
 end;
 
 { THash<K, V> }
