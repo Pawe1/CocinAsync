@@ -20,7 +20,7 @@ type
 implementation
 
 uses cocinasync.collections, System.Generics.Collections, System.Threading,
-  System.SyncObjs, cocinasync.async;
+  System.SyncObjs, cocinasync.async, System.Math;
 
 { TProfiles }
 
@@ -58,10 +58,13 @@ end;
 class procedure TProfiles.DoHashIteration(RunCnt, IterationSize : integer; ThreadCount : Integer; const Log : TLogProc);
 begin
   Log('Hash '+IterationSize.ToString+' Each');
-  SetupTest('Strings'#9'Ints'#9'Intfs'#9'Lkps',
+  SetupTest('Strings'#9'Ints'#9'Intfs'#9'Lkps'#9'Empty'#9'Max'#9'Avg',
     Log,
     procedure(CLog, DLog, TLog : TStrings)
     var
+      DepthS : THash<String, Integer>.TDepth;
+      DepthI : THash<Integer, Integer>.TDepth;
+      DepthO : THash<IInterface, Integer>.TDepth;
       chs : THash<String,Integer>;
       chi : THash<Integer,Integer>;
       cho : THash<IInterface,Integer>;
@@ -84,9 +87,9 @@ begin
       iTimeCHI := 0;
       iTimeCHO := 0;
       iTimeCHL := 0;
-      chs := THash<String,Integer>.Create;
-      chi := THash<Integer,Integer>.Create;
-      cho := THash<IInterface,Integer>.Create;
+      chs := THash<String,Integer>.Create(IterationSize * ThreadCount);
+      chi := THash<Integer,Integer>.Create(IterationSize * ThreadCount);
+      cho := THash<IInterface,Integer>.Create(IterationSize * ThreadCount);
       dhs := TDictionary<String, Integer>.Create;
       dhi := TDictionary<Integer, Integer>.Create;
       dho := TDictionary<IInterface, Integer>.Create;
@@ -238,6 +241,10 @@ begin
             sleep(10);
         end;
 
+        DepthS := chs.DebugDepth;
+        DepthI := chi.DebugDepth;
+        DepthO := cho.DebugDepth;
+
         DLog.Add((iTimeDHS div RunCnt).ToString);
         DLog.Add((iTimeDHI div RunCnt).ToString);
         DLog.Add((iTimeDHO div RunCnt).ToString);
@@ -246,10 +253,14 @@ begin
         CLog.Add((iTimeCHI div RunCnt).ToString);
         CLog.Add((iTimeCHO div RunCnt).ToString);
         CLog.Add((iTimeCHL div RunCnt).ToString);
+        CLog.Add((Round((DepthS.EmptyCnt+DepthI.EmptyCnt+DepthO.EmptyCnt) / (DepthS.Size*3)*10000)/100).ToString);
+        CLog.Add((Max(Max(DepthS.MaxDepth, DepthI.MaxDepth), DepthO.MaxDepth) ).ToString);
+        CLog.Add((Round((DepthS.Average+DepthI.Average+DepthO.Average) / (DepthS.Size*3)*10000)/100).ToString);
         TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
         TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
         TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
         TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+
 
       finally
         chs.Free;
