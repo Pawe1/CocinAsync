@@ -2,10 +2,8 @@ unit cocinasync.collections;
 
 interface
 
-uses System.SysUtils, System.Classes, System.SyncObjs, System.Generics.Defaults;
-
-const
-  HASH_ARRAY_SIZE = 16384;
+uses System.SysUtils, System.Classes, System.SyncObjs, System.Generics.Defaults,
+  System.TypInfo;
 
 type
   TInterlockedHelper = class helper for TInterlocked
@@ -44,15 +42,17 @@ type
       Value: V;
       Next: Pointer;
     end;
-    TItemArray = array[0..HASH_ARRAY_SIZE-1] of Pointer;
+    TItemArray = TArray<Pointer>;
   strict private
+    FMemSize: Cardinal;
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
+    FKeyType: PTypeInfo;
     function GetMap(Key: K): V;
-    procedure SetMap(Key: K; const Value: V; NewItem : PItem); overload; inline;
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem; Depth : integer); overload; //inline;
     procedure SetMap(Key: K; const Value: V); overload;
     function GetHas(Key: K): boolean;
-    function GetHash(Key : K) : Integer; inline;
+    function GetHash(Key : K) : Integer; //inline;
     function CalcDepth(item: PItem): integer; inline;
   public
     type
@@ -64,7 +64,7 @@ type
         Size : integer;
       end;
   public
-    constructor Create; reintroduce; virtual;
+    constructor Create(EstimatedItemCount : Integer = 1024); reintroduce; virtual;
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
@@ -179,11 +179,14 @@ begin
   SetMap(Key, Value);
 end;
 
-constructor THash<K, V>.Create;
+constructor THash<K, V>.Create(EstimatedItemCount : Integer = 1024);
 var
   i: Integer;
 begin
   inherited Create;
+  FMemSize := (EstimatedItemCount - (EstimatedItemCount div 4)) and (not 16);
+  SetLength(FItems,FMemSize);
+  FKeyType := TypeInfo(K);
   FComparer := TEqualityComparer<K>.Default;
   for i := Low(FItems) to High(FItems) do
     FItems[i] := nil;
@@ -207,8 +210,8 @@ begin
   Result.MaxDepth := 0;
   Result.Average := 0;
   Result.AvgFilled := 0;
-  Result.Size := HASH_ARRAY_SIZE;
-  for i := 0 to HASH_ARRAY_SIZE-1 do
+  Result.Size := FMemSize;
+  for i := 0 to FMemSize-1 do
   begin
     if FItems[i] <> nil then
     begin
@@ -219,8 +222,11 @@ begin
     end else
       Inc(Result.EmptyCnt);
   end;
-  Result.Average := Result.Average div HASH_ARRAY_SIZE;
-  Result.AvgFilled := Result.AvgFilled div (HASH_ARRAY_SIZE - Result.EmptyCnt);
+  Result.Average := Result.Average div FMemSize;
+  if FMemSize > Result.EmptyCnt then
+    Result.AvgFilled := Result.AvgFilled div (FMemSize - Result.EmptyCnt)
+  else
+    Result.AvgFilled := Result.Average;
 end;
 
 procedure THash<K, V>.Delete(const Key: K);
@@ -274,7 +280,7 @@ begin
     Result := V(nil);
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; Depth : integer);
 var
   p, pNew, pDisp, pPrior : PItem;
   idx : Integer;
@@ -306,7 +312,8 @@ begin
         TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
         if not bSuccess then
         begin
-          SetMap(Key,Value, pNew);
+          sleep(Depth);
+          SetMap(Key,Value, pNew, Depth+2);
         end;
       end else // Key Found, updating
       begin
@@ -315,7 +322,8 @@ begin
         TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
         if not bSuccess then
         begin
-          SetMap(Key,Value, pNew);
+          sleep(Depth);
+          SetMap(Key,Value, pNew, Depth+2);
         end else
         begin
           Dispose(pDisp);
@@ -328,14 +336,14 @@ begin
   TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
   if not bSuccess then
   begin
-    SetMap(Key, Value, pNew);
-    exit;
+    sleep(Depth);
+    SetMap(Key,Value, pNew, Depth+2);
   end;
 end;
 
 procedure THash<K, V>.SetMap(Key: K; const Value: V);
 begin
-  SetMap(Key, Value, nil);
+  SetMap(Key, Value, nil, 0);
 end;
 
 end.
