@@ -142,7 +142,10 @@ begin
     end else
     begin
       Sleep(Depth);
-      Result := Pop(Depth+1);
+      if Depth < 5 then
+        Result := Pop(Depth+1)
+      else
+        Result := Pop(Depth*2);
     end;
   end else
     Result := T(nil);
@@ -155,21 +158,24 @@ end;
 
 procedure TStack<T>.Push(const Value: T);
 var
-  ptop, p : Pointer;
+  ptop, p : PStackPointer;
   bSuccess : boolean;
   iSleep : integer;
 begin
-  p := New(PStackPointer);
-  PStackPointer(p)^.FData := Value;
+  New(p);
+  p^.FData := Value;
   bSuccess := False;
   iSleep := 0;
   repeat
-    PStackPointer(p).FPrior := FTop;
-    TInterlocked.CompareExchange(FTop,p,PStackPointer(p).FPrior,bSuccess);
+    p.FPrior := FTop;
+    TInterlocked.CompareExchange(FTop, p, p^.FPrior, bSuccess);
     if not bSuccess then
     begin
       sleep(iSleep);
-      inc(iSleep);
+      if iSleep < 5 then
+        inc(iSleep)
+      else
+        inc(iSleep, iSleep*2);
     end;
   until bSuccess;
 end;
