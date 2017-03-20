@@ -19,12 +19,12 @@ type
     procedure TearDown;
     [Test]
     [TestCase('TestStack-0','0, 1000,0')]
-//    [TestCase('TestStack-0-s','0, 20,0')]
     [TestCase('TestStack-1','1, 1000,0')]
     [TestCase('TestStack-2.1','2, 1000,1')]
     [TestCase('TestStack-8','8, 1000,0')]
     [TestCase('TestStack-8.5','8, 1000,5')]
     [TestCase('TestStack-10','10, 10000,1')]
+    [TestCase('TestStack-100','100, 100000, 0')]
     procedure TestStack(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
@@ -101,7 +101,7 @@ var
   h : THash<integer,integer>;
   bFinished : boolean;
 begin
-  h := THash<integer,integer>.Create;
+  h := THash<integer,integer>.Create(ThreadCount*ItemsCount);
   try
     SetLength(ary,ThreadCount);
     SetLength(aryErrors,ThreadCount);

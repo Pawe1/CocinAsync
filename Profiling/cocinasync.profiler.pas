@@ -87,9 +87,9 @@ begin
       iTimeCHI := 0;
       iTimeCHO := 0;
       iTimeCHL := 0;
-      chs := THash<String,Integer>.Create(IterationSize * ThreadCount);
-      chi := THash<Integer,Integer>.Create(IterationSize * ThreadCount);
-      cho := THash<IInterface,Integer>.Create(IterationSize * ThreadCount);
+      chs := THash<String,Integer>.Create((IterationSize * ThreadCount)+1);
+      chi := THash<Integer,Integer>.Create((IterationSize * ThreadCount)+1);
+      cho := THash<IInterface,Integer>.Create((IterationSize * ThreadCount)+1);
       dhs := TDictionary<String, Integer>.Create;
       dhi := TDictionary<Integer, Integer>.Create;
       dho := TDictionary<IInterface, Integer>.Create;
