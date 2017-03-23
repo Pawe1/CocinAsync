@@ -22,7 +22,7 @@ type
   strict private
     FTop : Pointer;
     FFirst : Pointer;
-    function Pop(Depth : integer) : T; overload; inline;
+    function Pop(const wait : TSpinWait) : T; overload; inline;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
@@ -51,7 +51,7 @@ type
     FKeyType: PTypeInfo;
     function GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem): Boolean;
     function GetMap(Key: K): V;
-    procedure SetMap(Key: K; const Value: V; NewItem : PItem; Depth : integer); overload; //inline;
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; //inline;
     procedure SetMap(Key: K; const Value: V); overload;
     function GetHas(Key: K): boolean;
     function GetHashIndex(Key : K) : Integer; //inline;
@@ -125,7 +125,7 @@ begin
     Result := T(nil);
 end;
 
-function TStack<T>.Pop(Depth: integer): T;
+function TStack<T>.Pop(const wait : TSpinWait): T;
 var
   p, pTop : PStackPointer;
   iCnt : integer;
@@ -141,41 +141,37 @@ begin
       Dispose(pTop);
     end else
     begin
-      Sleep(Depth);
-      if Depth < 5 then
-        Result := Pop(Depth+1)
-      else
-        Result := Pop(Depth*2);
+      wait.SpinCycle;
+      Result := Pop(wait);
     end;
   end else
     Result := T(nil);
 end;
 
 function TStack<T>.Pop: T;
+var
+  sw : TSpinWait;
 begin
-  Result := Pop(0);
+  sw.Reset;
+  Result := Pop(sw);
 end;
 
 procedure TStack<T>.Push(const Value: T);
 var
   ptop, p : PStackPointer;
   bSuccess : boolean;
-  iSleep : integer;
+  sw : TSpinWait;
 begin
   New(p);
   p^.FData := Value;
   bSuccess := False;
-  iSleep := 0;
+  sw.Reset;
   repeat
     p.FPrior := FTop;
     TInterlocked.CompareExchange(FTop, p, p^.FPrior, bSuccess);
     if not bSuccess then
     begin
-      sleep(iSleep);
-      if iSleep < 5 then
-        inc(iSleep)
-      else
-        inc(iSleep, iSleep*2);
+      sw.SpinCycle;
     end;
   until bSuccess;
 end;
@@ -307,7 +303,7 @@ begin
     Current := nil;
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; Depth : integer);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait);
 var
   p, pNew, pDisp, pPrior : PItem;
   idx : Integer;
@@ -333,8 +329,8 @@ begin
       TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
       if not bSuccess then
       begin
-        sleep(Depth);
-        SetMap(Key,Value, pNew, Depth+2);
+        wait.SpinCycle;
+        SetMap(Key,Value, pNew, wait);
       end;
     end else // Key Found, updating
     begin
@@ -343,8 +339,8 @@ begin
       TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
       if not bSuccess then
       begin
-        sleep(Depth);
-        SetMap(Key,Value, pNew, Depth+2);
+        wait.SpinCycle;
+        SetMap(Key,Value, pNew, wait);
       end else
       begin
         Dispose(pDisp);
@@ -356,8 +352,8 @@ begin
     TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
     if not bSuccess then
     begin
-      sleep(Depth);
-      SetMap(Key,Value, pNew, Depth+2);
+      wait.SpinCycle;
+      SetMap(Key,Value, pNew, wait);
     end else
       if p <> nil then
         Dispose(p);
@@ -365,8 +361,11 @@ begin
 end;
 
 procedure THash<K, V>.SetMap(Key: K; const Value: V);
+var
+  sw : TSpinWait;
 begin
-  SetMap(Key, Value, nil, 0);
+  sw.Reset;
+  SetMap(Key, Value, nil, sw);
 end;
 
 end.
