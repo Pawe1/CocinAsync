@@ -242,11 +242,21 @@ end;
 
 destructor THash<K, V>.Destroy;
 var
+  p, pNext : PItem;
   i: Integer;
 begin
   for i := Low(FItems) to High(FItems) do
     if FItems[i] <> nil then
+    begin
+      p := PItem(PItem(FItems[i])^.Next);
+      while p <> nil do
+      begin
+        pNext := p^.Next;
+        Dispose(p);
+        p := pNext;
+      end;
       Dispose(FItems[i]);
+    end;
   inherited;
 end;
 
