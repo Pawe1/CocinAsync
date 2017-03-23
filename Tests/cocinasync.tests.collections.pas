@@ -58,37 +58,27 @@ procedure TestCollections.TestHash;
 var
   i: Integer;
   h : THash<integer,integer>;
-  ary : TArray<string>;
+  s : string;
 begin
-  SetLength(ary,1000);
   h := THash<integer,integer>.Create;
   try
     // set first to a value
-    for i := 1 to 1000 do
-    begin
-      h[i] := 890000+i;
-    end;
+    h[1] := 890000;
 
     // update to another value
-    for i := 1 to 1000 do
-    begin
-      h[i] := 990000+i;
-    end;
+    h[1] := 990000;
 
     // make sure updated value is in the hash
-    for i := 1 to 1000 do
-    begin
-      if h[i] = 990000+i then
-        ary[i-1] := ''
+    if h[1] = 990000 then
+      s := ''
       else
-        ary[i-1] := 'Expected '+(990000+i).ToString+' found '+h[i].ToString;
-    end;
+      s := 'Expected '+(990000+i).ToString+' found '+h[i].ToString;
   finally
     h.Free;
   end;
-  for i := 0 to length(ary)-1 do
-    if ary[i] <> '' then
-      Assert.Fail(ary[i]);
+
+  if s <> '' then
+    Assert.Fail(s);
 
   Assert.Pass;
 end;
