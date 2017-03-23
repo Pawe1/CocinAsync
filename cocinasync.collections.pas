@@ -49,7 +49,7 @@ type
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
-    function GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem): Boolean;
+    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
     function GetMap(Key: K): V;
     procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; //inline;
     procedure SetMap(Key: K; const Value: V); overload;
@@ -252,6 +252,7 @@ begin
       while p <> nil do
       begin
         pNext := p^.Next;
+        p^.Value := V(nil);
         Dispose(p);
         p := pNext;
       end;
@@ -277,8 +278,9 @@ end;
 function THash<K, V>.GetMap(Key: K): V;
 var
   p, pPrior : PItem;
+  iDepth : integer;
 begin
-  GetMapPointer(Key, GetHashIndex(Key), pPrior, p);
+  GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
   if p <> nil then
   begin
     Result := p.Value;
@@ -286,11 +288,11 @@ begin
     Result := V(nil);
 end;
 
-function THash<K, V>.GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem): Boolean;
+procedure THash<K, V>.GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
 var
   p : PItem;
 begin
-  Result := False;
+  Depth := 0;
   Prior := nil;
   p := FItems[HashIdx];
   if p <> nil then
@@ -300,6 +302,7 @@ begin
       repeat
         Prior := p;
         p := p.Next;
+        inc(Depth);
       until (p = nil) or FComparer.Equals(p.Key, Key);
 
       if p <> nil then
@@ -308,7 +311,6 @@ begin
         Current := nil;
     end else
       Current := p;
-    Result := Prior <> nil;
   end else
     Current := nil;
 end;
@@ -316,8 +318,8 @@ end;
 procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait);
 var
   p, pNew, pDisp, pPrior : PItem;
-  idx : Integer;
-  bSlotNotEmpty, bSuccess : boolean;
+  iDepth, idx : Integer;
+  bSuccess : boolean;
 begin
   if NewItem = nil then
   begin
@@ -330,35 +332,48 @@ begin
 
   idx := GetHashIndex(Key);
   pPrior := nil;
-  bSlotNotEmpty := GetMapPointer(Key, idx, pPrior, p);
-  if bSlotNotEmpty then
+  GetMapPointer(Key, idx, pPrior, p, iDepth);
+  if (iDepth > 0) and (p = nil) then
   begin
-    if p = nil then // New Key not found in list.
+    // Slot occupied but key not found
+    pNew.Next := p;
+    TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+    if not bSuccess then
     begin
-      pNew.Next := p;
-      TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
-      if not bSuccess then
-      begin
-        wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
-      end;
-    end else // Key Found, updating
-    begin
-      pDisp := p;
-      pNew.Next := p^.Next;
-      TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
-      if not bSuccess then
-      begin
-        wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
-      end else
-      begin
-        Dispose(pDisp);
-      end;
+      wait.SpinCycle;
+      SetMap(Key,Value, pNew, wait);
     end;
-  end else
+  end else if (iDepth > 0) and (p <> nil) then
   begin
-    // New Key at position, add a new one.
+    // Slot occupied but key found in linked list
+    pDisp := p;
+    pNew.Next := p^.Next;
+    TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+    if not bSuccess then
+    begin
+      wait.SpinCycle;
+      SetMap(Key,Value, pNew, wait);
+    end else
+    begin
+      Dispose(pDisp);
+    end;
+  end else if (iDepth = 0) and (p <> nil) then
+  begin
+    // Slot occupied byt key starts linked list
+    pDisp := p;
+    pNew.Next := p^.Next;
+    TInterlocked.CompareExchange(FItems[idx], pNew, p, bSuccess);
+    if not bSuccess then
+    begin
+      wait.SpinCycle;
+      SetMap(Key,Value, pNew, wait);
+    end else
+    begin
+      Dispose(pDisp);
+    end;
+  end else if (iDepth = 0) and (p = nil) then
+  begin
+    // Slot open, start linked list with key
     TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
     if not bSuccess then
     begin
@@ -367,7 +382,8 @@ begin
     end else
       if p <> nil then
         Dispose(p);
-  end;
+  end else
+    raise Exception.Create('Invalid Hash State.');
 end;
 
 procedure THash<K, V>.SetMap(Key: K; const Value: V);
