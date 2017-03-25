@@ -26,7 +26,7 @@ begin
     try
       slProfile := TStringList.Create;
       try
-        sFilename := ExtractFilePath(ParamStr(0))+'profile.log';
+        sFilename := ExtractFilePath(ParamStr(0))+'profile_scalemm.log';
         if FileExists(sFilename) then
           DeleteFile(sFilename);
 

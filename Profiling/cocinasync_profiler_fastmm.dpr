@@ -14,7 +14,6 @@ uses
   cocinasync.profiler in 'cocinasync.profiler.pas';
 
 
-procedure Run;
 var
   logproc : TLogProc;
   cs : TConsole;
@@ -28,7 +27,7 @@ begin
     try
       slProfile := TStringList.Create;
       try
-        sFilename := ExtractFilePath(ParamStr(0))+'profile.log';
+        sFilename := ExtractFilePath(ParamStr(0))+'profile_fastmm.log';
         if FileExists(sFilename) then
           DeleteFile(sFilename);
 
@@ -83,8 +82,5 @@ begin
     on E: Exception do
       Writeln(E.ClassName, ': ', E.Message);
   end;
-end;
 
-begin
-  Run;
 end.
