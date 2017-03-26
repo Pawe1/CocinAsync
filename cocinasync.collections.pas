@@ -112,7 +112,7 @@ end;
 destructor TStack<T>.Destroy;
 begin
   Clear;
-  Dispose(FFirst);
+  Dispose(PStackPointer(FFirst));
   inherited;
 end;
 
@@ -138,7 +138,7 @@ begin
     if bSucceeded then
     begin
       Result := p^.FData;
-      Dispose(pTop);
+      Dispose(PStackPointer(pTop));
     end else
     begin
       wait.SpinCycle;
@@ -253,10 +253,10 @@ begin
       begin
         pNext := p^.Next;
         p^.Value := V(nil);
-        Dispose(p);
+        Dispose(PItem(p));
         p := pNext;
       end;
-      Dispose(FItems[i]);
+      Dispose(PItem(FItems[i]));
     end;
   inherited;
 end;
