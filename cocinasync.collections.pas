@@ -11,6 +11,26 @@ type
     class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
   end;
 
+  TQueue<T> = class(TObject)
+  strict private
+    type
+      PQueuePointer = ^TQueuePointer;
+      TQueuePointer = record
+        FData : T;
+        FNext : Pointer;
+      end;
+  strict private
+    FFirst : PQueuePointer;
+    procedure Enqueue(const Value: T; NewItem : PQueuePointer; const Wait : TSpinWait); overload;// inline;
+  public
+    constructor Create; reintroduce; virtual;
+    destructor Destroy; override;
+
+    procedure Enqueue(const Value: T); overload; //inline;
+    function Dequeue: T; overload;// inline;
+    procedure Clear;
+  end;
+
   TStack<T> = class(TObject)
   strict private
     type
@@ -85,6 +105,86 @@ begin
   Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
 end;
 
+
+{ TQueue<T> }
+
+procedure TQueue<T>.Clear;
+begin
+  while FFirst^.FNext <> nil do
+    Dequeue;
+end;
+
+constructor TQueue<T>.Create;
+var
+  p : PQueuePointer;
+begin
+  inherited Create;
+  New(p);
+  p^.FData := T(nil);
+  p^.FNext := nil;
+  FFirst := p;
+end;
+
+function TQueue<T>.Dequeue: T;
+var
+  p : PQueuePointer;
+  sw : TSpinWait;
+  bSuccess : boolean;
+begin
+  if FFirst^.FNext = nil then
+  begin
+    Exit(T(nil));
+  end;
+  sw.Reset;
+  repeat
+    p := FFirst^.FNext;
+    TInterlocked.CompareExchange(FFirst^.FNext, p.FNext,p,bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until bSuccess;
+  Result := p^.FData;
+  Dispose(p);
+end;
+
+destructor TQueue<T>.Destroy;
+begin
+  Clear;
+  Dispose(FFirst);
+  inherited;
+end;
+
+procedure TQueue<T>.Enqueue(const Value: T; NewItem : PQueuePointer; const Wait: TSpinWait);
+var
+  pLast : PQueuePointer;
+  sw : TSpinWait;
+  bSuccess : boolean;
+begin
+  pLast := FFirst;
+  while pLast^.FNext <> nil do
+    pLast := pLast^.FNext;
+
+  sw.Reset;
+  TInterlocked.CompareExchange(pLast^.FNext,NewItem,nil,bSuccess);
+  if not bSuccess then
+  begin
+    Enqueue(Value, NewItem, Wait);
+    sw.SpinCycle;
+  end;
+end;
+
+procedure TQueue<T>.Enqueue(const Value: T);
+var
+  p : PQueuePointer;
+  sw : TSpinWait;
+  bSuccess : boolean;
+begin
+  New(p);
+  p^.FData := Value;
+  p^.FNext := nil;
+
+  sw.Reset;
+  Enqueue(Value, p, sw);
+end;
 
 { TStack<T> }
 
