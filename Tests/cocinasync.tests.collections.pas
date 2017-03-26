@@ -25,10 +25,16 @@ type
     [TestCase('TestStack-8.5','8, 1000,5')]
     [TestCase('TestStack-10','10, 10000,1')]
     [TestCase('TestStack-100','100, 100000, 0')]
-    procedure TestStack(ThreadCount, ItemsCount, Delay : Integer);
+    procedure TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
     procedure TestHash;
+
+    [Test]
+    procedure TestQueue;
+
+    [Test]
+    procedure TestStack;
 
     [Test]
     [TestCase('TestHash-8','2, 1000, 0')]
@@ -162,7 +168,47 @@ begin
   Assert.Pass;
 end;
 
-procedure TestCollections.TestStack(ThreadCount, ItemsCount, Delay : Integer);
+procedure TestCollections.TestQueue;
+var
+  queue : TQueue<integer>;
+  i: Integer;
+begin
+  queue := TQueue<integer>.Create;
+  try
+    for i := 1 to 100 do
+      queue.Enqueue(i);
+
+    for i := 1 to 100 do
+      if queue.dequeue <> i then
+        Assert.Fail('Expected '+i.ToString);
+
+    Assert.Pass;
+  finally
+    queue.Free;
+  end;
+end;
+
+procedure TestCollections.TestStack;
+var
+  stack : TStack<integer>;
+  i: Integer;
+begin
+  stack := TStack<integer>.Create;
+  try
+    for i := 1 to 100 do
+      stack.Push(i);
+
+    for i := 100 downto 1 do
+      if stack.pop <> i then
+        Assert.Fail('Expected '+i.ToString);
+
+    Assert.Pass;
+  finally
+    stack.Free;
+  end;
+end;
+
+procedure TestCollections.TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 var
   ary : TArray<TThread>;
   iEndCount : integer;
