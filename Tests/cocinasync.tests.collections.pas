@@ -28,9 +28,6 @@ type
     procedure TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
-    procedure TestCircularArray;
-
-    [Test]
     procedure TestHash;
 
     [Test]
@@ -63,30 +60,11 @@ type
   TThreadHack = class(TThread)
   end;
 
-procedure TestCollections.TestCircularArray;
-var
-  ary : TCircularArray<integer>;
-  i: Integer;
-begin
-  ary := TCircularArray<integer>.Create(10000);
-  try
-    for i := 1 to 1000 do
-      ary.Push(i);
-
-    for i := 1 to 1000 do
-      if ary.Dequeue <> i then
-        Assert.Fail('Expected '+i.ToString);
-
-     Assert.Pass;
-  finally
-    ary.Free;
-  end;
-end;
-
 procedure TestCollections.TestHash;
 var
-  i: Integer;
   h : THash<integer,integer>;
+  hs : THash<integer, string>;
+  ho : THash<integer, TObject>;
   s : string;
 begin
   h := THash<integer,integer>.Create;
@@ -101,13 +79,37 @@ begin
     if h[1] = 990000 then
       s := ''
       else
-      s := 'Expected '+(990000+i).ToString+' found '+h[i].ToString;
+      s := 'Expected '+(990000).ToString+' found '+h[1].ToString;
   finally
     h.Free;
   end;
 
   if s <> '' then
     Assert.Fail(s);
+
+  hs := THash<integer, string>.Create;
+  try
+    hs[2] := '990000';
+
+    hs[2] := '890000';
+
+    if hs[2] <> '890000' then
+      s := 'Expected 890000 found '+hs[2]
+    else
+      s := '';
+  finally
+    hs.Free;
+  end;
+
+  ho := THash<integer, TObject>.Create;
+  try
+    ho[3] := self;
+    ho[3] := ho;
+    if ho[3] <> ho then
+      Assert.Fail('Wrong Object in Hash');
+  finally
+    ho.Free;
+  end;
 
   Assert.Pass;
 end;
@@ -196,7 +198,7 @@ var
   queue : TQueue<integer>;
   i: Integer;
 begin
-  queue := TQueue<integer>.Create;
+  queue := TQueue<integer>.Create(101);
   try
     for i := 1 to 100 do
       queue.Enqueue(i);
