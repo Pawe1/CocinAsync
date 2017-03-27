@@ -33,6 +33,7 @@ requires
 contains
   cocinasync.jobs in 'cocinasync.jobs.pas',
   cocinasync.async in 'cocinasync.async.pas',
-  cocinasync.global in 'cocinasync.global.pas';
+  cocinasync.global in 'cocinasync.global.pas',
+  cocinasync.collections in 'cocinasync.collections.pas';
 
 end.
