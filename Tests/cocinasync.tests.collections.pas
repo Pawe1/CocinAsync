@@ -80,12 +80,24 @@ begin
       s := ''
       else
       s := 'Expected '+(990000).ToString+' found '+h[1].ToString;
+
+    if s <> '' then
+      Assert.Fail(s);
+
+    h[2] := 123;
+    h[3] := 235;
+    h.Visit(
+      procedure(const Key : Integer; var Value : Integer; var Delete : Boolean)
+      begin
+        if Key = 2 then
+          Delete := True;
+      end
+    );
+    h.Remove(2);
   finally
     h.Free;
   end;
 
-  if s <> '' then
-    Assert.Fail(s);
 
   hs := THash<integer, string>.Create;
   try
