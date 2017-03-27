@@ -5,40 +5,50 @@ interface
 uses System.SysUtils, System.Classes, System.SyncObjs, System.Generics.Defaults,
   System.TypInfo;
 
+resourcestring
+  S_ARRAYISFULL = 'The queue is full';
+  S_ARRAYISEMPTY = 'The queue is empty';
+
 type
   TInterlockedHelper = class helper for TInterlocked
   public
-    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
+    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer; overload;
+    class function CompareExchange(var Target: UInt64; Value: UInt64; Comparand: UInt64; out Succeeded: Boolean): UInt64; overload;
+  end;
+
+  EQueueSizeException = class(Exception)
   end;
 
   TQueue<T> = class(TObject)
   strict private
-    type
-      PQueuePointer = ^TQueuePointer;
-      TQueuePointer = record
-        FData : T;
-        FNext : Pointer;
-      end;
-  strict private
-    FFirst : PQueuePointer;
-    procedure Enqueue(const Value: T; NewItem : PQueuePointer; const Wait : TSpinWait); overload;// inline;
+    FData : System.TArray<T>;
+    FSize : integer;
+    FWriteIndex : integer;
+    FReadIndex : integer;
+    FWriteIndexMax : integer;
+    FReadIndexMax : integer;
+    function IndexOf(idx : integer) : integer; inline;
+    function GetItems(idx: integer): T;
+    function GetLength: integer;
   public
-    constructor Create; reintroduce; virtual;
+    constructor Create(Size : Integer); reintroduce; virtual;
     destructor Destroy; override;
 
-    procedure Enqueue(const Value: T); overload; //inline;
-    function Dequeue: T; overload;// inline;
-    procedure Clear;
+    procedure Enqueue(Value : T); inline;
+    function Dequeue : T; inline;
+    procedure Clear; inline;
+
+    property Items[idx : integer] : T read GetItems; default;
+    property Length : integer read GetLength;
   end;
 
   TStack<T> = class(TObject)
-  strict private
-    type
-      PStackPointer = ^TStackPointer;
-      TStackPointer = record
-        FData : T;
-        FPrior : Pointer;
-      end;
+  strict private type
+    PStackPointer = ^TStackPointer;
+    TStackPointer = record
+      FData : T;
+      FPrior : Pointer;
+    end;
   strict private
     FTop : Pointer;
     FFirst : Pointer;
@@ -62,7 +72,7 @@ type
       Value: V;
       Next: Pointer;
     end;
-    TItemArray = TArray<Pointer>;
+    TItemArray = system.TArray<Pointer>;
   strict private
     FMemSize: Cardinal;
     FSizeMask : Cardinal;
@@ -100,7 +110,15 @@ implementation
 
 uses Math;
 
+{ TInterlockedHelper }
+
 class function TInterlockedHelper.CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
+begin
+  Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
+end;
+
+class function TInterlockedHelper.CompareExchange(var Target: UInt64; Value,
+  Comparand: UInt64; out Succeeded: Boolean): UInt64;
 begin
   Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
 end;
@@ -110,80 +128,93 @@ end;
 
 procedure TQueue<T>.Clear;
 begin
-  while FFirst^.FNext <> nil do
+  repeat
     Dequeue;
+  until IndexOf(FReadIndex) = IndexOf(FReadIndexMax);
 end;
 
-constructor TQueue<T>.Create;
-var
-  p : PQueuePointer;
+constructor TQueue<T>.Create(Size: Integer);
 begin
   inherited Create;
-  New(p);
-  p^.FData := T(nil);
-  p^.FNext := nil;
-  FFirst := p;
+  FSize := Size;
+  SetLength(FData, Size);
 end;
 
 function TQueue<T>.Dequeue: T;
 var
-  p : PQueuePointer;
-  sw : TSpinWait;
+  iMaxRead, iRead : integer;
   bSuccess : boolean;
+  sw : TSpinWait;
+  p : pointer;
 begin
-  if FFirst^.FNext = nil then
-  begin
-    Exit(T(nil));
-  end;
   sw.Reset;
   repeat
-    p := FFirst^.FNext;
-    TInterlocked.CompareExchange(FFirst^.FNext, p.FNext,p,bSuccess);
+    iRead := FReadIndex;
+    iMaxRead := FReadIndexMax;
+
+    if IndexOf(iRead) = IndexOf(iMaxRead) then
+      exit(T(nil));
+
+    Result := FData[IndexOf(iRead)];
+
+    TInterlocked.CompareExchange(FReadIndex, iRead+1, iRead, bSuccess);
     if not bSuccess then
       sw.SpinCycle;
   until bSuccess;
-  Result := p^.FData;
-  Dispose(p);
+
+  if IsManagedType(T) then
+  begin
+    p := @FData[IndexOf(iRead)];
+    TInterlocked.CompareExchange(p,nil,@Result);
+  end;
 end;
 
 destructor TQueue<T>.Destroy;
 begin
   Clear;
-  Dispose(FFirst);
   inherited;
 end;
 
-procedure TQueue<T>.Enqueue(const Value: T; NewItem : PQueuePointer; const Wait: TSpinWait);
+procedure TQueue<T>.Enqueue(Value: T);
 var
-  pLast : PQueuePointer;
-  sw : TSpinWait;
   bSuccess : boolean;
+  iRead, iWrite : integer;
+  sw : TSpinWait;
 begin
-  pLast := FFirst;
-  while pLast^.FNext <> nil do
-    pLast := pLast^.FNext;
+  sw.Reset;
+  repeat
+    iWrite := FWriteIndex;
+    iRead := FReadIndex;
+    if IndexOf(iWrite + 1) = IndexOf(iRead) then
+      raise EQueueSizeException.Create(S_ARRAYISFULL);
+    TInterlocked.CompareExchange(FWriteIndex, iWrite+1, iWrite, bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until bSuccess;
+
+  FData[IndexOf(iWrite)] := Value;
 
   sw.Reset;
-  TInterlocked.CompareExchange(pLast^.FNext,NewItem,nil,bSuccess);
-  if not bSuccess then
-  begin
-    Enqueue(Value, NewItem, Wait);
-    sw.SpinCycle;
-  end;
+  repeat
+    TInterlocked.CompareExchange(FReadIndexMax, iWrite+1, iWrite, bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until (bSuccess);
 end;
 
-procedure TQueue<T>.Enqueue(const Value: T);
-var
-  p : PQueuePointer;
-  sw : TSpinWait;
-  bSuccess : boolean;
+function TQueue<T>.GetItems(idx: integer): T;
 begin
-  New(p);
-  p^.FData := Value;
-  p^.FNext := nil;
+  Result := FData[IndexOf(idx)];
+end;
 
-  sw.Reset;
-  Enqueue(Value, p, sw);
+function TQueue<T>.GetLength: integer;
+begin
+  Result := FWriteIndexMax - FReadIndexMax;
+end;
+
+function TQueue<T>.IndexOf(idx: integer): integer;
+begin
+  result := idx mod FSize;
 end;
 
 { TStack<T> }

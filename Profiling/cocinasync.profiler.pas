@@ -316,9 +316,9 @@ begin
       iTimeCHI := 0;
       iTimeCHO := 0;
       iTimeCHL := 0;
-      chs := cocinasync.collections.TQueue<String>.Create;
-      chi := cocinasync.collections.TQueue<Integer>.Create;
-      cho := cocinasync.collections.TQueue<TObject>.Create;
+      chs := cocinasync.collections.TQueue<String>.Create((IterationSize*RunCnt*ThreadCount)+100);
+      chi := cocinasync.collections.TQueue<Integer>.Create((IterationSize*RunCnt*ThreadCount)+100);
+      cho := cocinasync.collections.TQueue<TObject>.Create((IterationSize*RunCnt*ThreadCount)+100);
       dhs := system.generics.collections.TQueue<String>.Create;
       dhi := system.generics.collections.TQueue<Integer>.Create;
       dho := system.generics.collections.TQueue<TObject>.Create;

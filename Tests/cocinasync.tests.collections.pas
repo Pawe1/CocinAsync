@@ -28,6 +28,9 @@ type
     procedure TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
+    procedure TestCircularArray;
+
+    [Test]
     procedure TestHash;
 
     [Test]
@@ -59,6 +62,26 @@ end;
 type
   TThreadHack = class(TThread)
   end;
+
+procedure TestCollections.TestCircularArray;
+var
+  ary : TCircularArray<integer>;
+  i: Integer;
+begin
+  ary := TCircularArray<integer>.Create(10000);
+  try
+    for i := 1 to 1000 do
+      ary.Push(i);
+
+    for i := 1 to 1000 do
+      if ary.Dequeue <> i then
+        Assert.Fail('Expected '+i.ToString);
+
+     Assert.Pass;
+  finally
+    ary.Free;
+  end;
+end;
 
 procedure TestCollections.TestHash;
 var
