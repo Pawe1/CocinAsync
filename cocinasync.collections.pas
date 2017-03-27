@@ -14,6 +14,7 @@ type
   public
     class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer; overload;
     class function CompareExchange(var Target: UInt64; Value: UInt64; Comparand: UInt64; out Succeeded: Boolean): UInt64; overload;
+    class function Exchange<T>(var Target: T; Value: T): T; overload;
   end;
 
   EQueueSizeException = class(Exception)
@@ -66,6 +67,7 @@ type
   THash<K,V> = class(TObject)
   strict private
     type
+    PValue = ^V;
     PItem = ^TItem;
     TItem = record
       Key: K;
@@ -123,6 +125,11 @@ begin
   Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
 end;
 
+
+class function TInterlockedHelper.Exchange<T>(var Target: T; Value : T): T;
+begin
+  TObject((@Result)^) := Exchange(TObject((@Target)^), TObject((@Value)^));
+end;
 
 { TQueue<T> }
 
@@ -451,70 +458,49 @@ var
   p, pNew, pDisp, pPrior : PItem;
   iDepth, idx : Integer;
   bSuccess : boolean;
+  vValue : V;
 begin
-  if NewItem = nil then
-  begin
-    New(pNew);
-    pNew.Key := Key;
-    pNew.Value := Value;
-  end else
-    pNew := NewItem;
-  pNew.Next := nil;
-
   idx := GetHashIndex(Key);
   pPrior := nil;
   GetMapPointer(Key, idx, pPrior, p, iDepth);
-  if (iDepth > 0) and (p = nil) then
+
+  if p = nil then
   begin
-    // Slot occupied but key not found
-    pNew.Next := p;
-    TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
-    if not bSuccess then
+    if NewItem = nil then
     begin
-      wait.SpinCycle;
-      SetMap(Key,Value, pNew, wait);
-    end;
-  end else if (iDepth > 0) and (p <> nil) then
-  begin
-    // Slot occupied but key found in linked list
-    pDisp := p;
-    pNew.Next := p^.Next;
-    TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
-    if not bSuccess then
+      New(pNew);
+      pNew.Key := Key;
+      pNew.Value := Value;
+    end else
+      pNew := NewItem;
+    pNew.Next := nil;
+
+    if iDepth > 0 then
     begin
-      wait.SpinCycle;
-      SetMap(Key,Value, pNew, wait);
+      // Slot occupied but key not found
+      pNew.Next := p;
+      TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+      if not bSuccess then
+      begin
+        wait.SpinCycle;
+        SetMap(Key,Value, pNew, wait);
+      end;
     end else
     begin
-      Dispose(pDisp);
+      // Slot open, start linked list with key
+      TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
+      if not bSuccess then
+      begin
+        wait.SpinCycle;
+        SetMap(Key,Value, pNew, wait);
+      end else
+        if p <> nil then
+          Dispose(p);
     end;
-  end else if (iDepth = 0) and (p <> nil) then
-  begin
-    // Slot occupied byt key starts linked list
-    pDisp := p;
-    pNew.Next := p^.Next;
-    TInterlocked.CompareExchange(FItems[idx], pNew, p, bSuccess);
-    if not bSuccess then
-    begin
-      wait.SpinCycle;
-      SetMap(Key,Value, pNew, wait);
-    end else
-    begin
-      Dispose(pDisp);
-    end;
-  end else if (iDepth = 0) and (p = nil) then
-  begin
-    // Slot open, start linked list with key
-    TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
-    if not bSuccess then
-    begin
-      wait.SpinCycle;
-      SetMap(Key,Value, pNew, wait);
-    end else
-      if p <> nil then
-        Dispose(p);
   end else
-    raise Exception.Create('Invalid Hash State.');
+  begin
+    TInterlocked.Exchange<V>(p^.Value,Value);
+  end;
 end;
 
 procedure THash<K, V>.SetMap(Key: K; const Value: V);
