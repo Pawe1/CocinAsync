@@ -2,7 +2,7 @@ unit cocinasync.global;
 
 interface
 
-uses System.Classes;
+uses System.SysUtils, System.Classes, System.SyncObjs;
 
 type
   TThreadCounter = class(TObject)
@@ -21,12 +21,24 @@ type
     procedure NotifyThreadEnd;
     property ThreadCount : Integer read FThreadCount;
 
+    procedure WaitForAll(Timeout : Cardinal = 0);
     class property Global : TThreadCounter read FGlobal;
+  end;
+
+  TConsole = class(TObject)
+  private
+    FEvent : TEvent;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Wake(Sender : TObject);
+    procedure CheckSynchronize(Timeout : Integer = INFINITE);
+    class procedure ApplicationLoop(const &Until : TFunc<Boolean>);
   end;
 
 implementation
 
-uses System.SysUtils, System.SyncObjs;
+uses DateUtils;
 
 { TCocinAsync }
 
@@ -65,6 +77,58 @@ begin
   if FTerminating then
     Abort;
   TInterlocked.Increment(FThreadCount);
+end;
+
+procedure TThreadCounter.WaitForAll(Timeout: Cardinal);
+var
+  dtStart : TDateTime;
+begin
+  dtStart := Now;
+  while (FThreadCount > 0) and
+        (  (Timeout = 0) or
+           ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) >= Timeout))
+        ) do
+    sleep(10);
+end;
+
+{ TConsoleSync }
+
+procedure TConsole.CheckSynchronize(Timeout : Integer = INFINITE);
+begin
+  FEvent.WaitFor(Timeout);
+  System.Classes.CheckSynchronize;
+end;
+
+constructor TConsole.Create;
+begin
+  inherited Create;
+  FEvent := TEvent.Create;
+  WakeMainThread := Wake;
+end;
+
+destructor TConsole.Destroy;
+begin
+  FEvent.Free;
+  inherited;
+end;
+
+class procedure TConsole.ApplicationLoop(const &Until: TFunc<Boolean>);
+var
+  CS : TConsole;
+begin
+  CS := TConsole.Create;
+  try
+    repeat
+      CS.CheckSynchronize(1000);
+    until not &Until();
+  finally
+    CS.Free;
+  end;
+end;
+
+procedure TConsole.Wake(Sender: TObject);
+begin
+  FEvent.SetEvent;
 end;
 
 initialization

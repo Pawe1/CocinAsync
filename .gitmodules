@@ -1,0 +1,6 @@
+[submodule "common/scalemm"]
+	path = common/scalemm
+	url = https://github.com/andremussche/scalemm
+[submodule "common/FastMM4"]
+	path = common/FastMM4
+	url = https://github.com/pleriche/FastMM4
