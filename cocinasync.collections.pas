@@ -5,20 +5,51 @@ interface
 uses System.SysUtils, System.Classes, System.SyncObjs, System.Generics.Defaults,
   System.TypInfo;
 
+resourcestring
+  S_ARRAYISFULL = 'The queue is full';
+  S_ARRAYISEMPTY = 'The queue is empty';
+
 type
   TInterlockedHelper = class helper for TInterlocked
   public
-    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
+    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer; overload;
+    class function CompareExchange(var Target: UInt64; Value: UInt64; Comparand: UInt64; out Succeeded: Boolean): UInt64; overload;
+    class function Exchange<T>(var Target: T; Value: T): T; overload;
+  end;
+
+  EQueueSizeException = class(Exception)
+  end;
+
+  TQueue<T> = class(TObject)
+  strict private
+    FData : System.TArray<T>;
+    FSize : integer;
+    FWriteIndex : integer;
+    FReadIndex : integer;
+    FWriteIndexMax : integer;
+    FReadIndexMax : integer;
+    function IndexOf(idx : integer) : integer; inline;
+    function GetItems(idx: integer): T;
+    function GetLength: integer;
+  public
+    constructor Create(Size : Integer); reintroduce; virtual;
+    destructor Destroy; override;
+
+    procedure Enqueue(Value : T); inline;
+    function Dequeue : T; inline;
+    procedure Clear; inline;
+
+    property Items[idx : integer] : T read GetItems; default;
+    property Length : integer read GetLength;
   end;
 
   TStack<T> = class(TObject)
-  strict private
-    type
-      PStackPointer = ^TStackPointer;
-      TStackPointer = record
-        FData : T;
-        FPrior : Pointer;
-      end;
+  strict private type
+    PStackPointer = ^TStackPointer;
+    TStackPointer = record
+      FData : T;
+      FPrior : Pointer;
+    end;
   strict private
     FTop : Pointer;
     FFirst : Pointer;
@@ -36,20 +67,21 @@ type
   THash<K,V> = class(TObject)
   strict private
     type
+    PValue = ^V;
     PItem = ^TItem;
     TItem = record
       Key: K;
       Value: V;
       Next: Pointer;
     end;
-    TItemArray = TArray<Pointer>;
+    TItemArray = system.TArray<Pointer>;
   strict private
     FMemSize: Cardinal;
     FSizeMask : Cardinal;
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
-    function GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem): Boolean;
+    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
     function GetMap(Key: K): V;
     procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; //inline;
     procedure SetMap(Key: K; const Value: V); overload;
@@ -80,11 +112,117 @@ implementation
 
 uses Math;
 
+{ TInterlockedHelper }
+
 class function TInterlockedHelper.CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer;
 begin
   Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
 end;
 
+class function TInterlockedHelper.CompareExchange(var Target: UInt64; Value,
+  Comparand: UInt64; out Succeeded: Boolean): UInt64;
+begin
+  Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
+end;
+
+
+class function TInterlockedHelper.Exchange<T>(var Target: T; Value : T): T;
+begin
+  TObject((@Result)^) := Exchange(TObject((@Target)^), TObject((@Value)^));
+end;
+
+{ TQueue<T> }
+
+procedure TQueue<T>.Clear;
+begin
+  repeat
+    Dequeue;
+  until IndexOf(FReadIndex) = IndexOf(FReadIndexMax);
+end;
+
+constructor TQueue<T>.Create(Size: Integer);
+begin
+  inherited Create;
+  FSize := Size;
+  SetLength(FData, Size);
+end;
+
+function TQueue<T>.Dequeue: T;
+var
+  iMaxRead, iRead : integer;
+  bSuccess : boolean;
+  sw : TSpinWait;
+  p : pointer;
+begin
+  sw.Reset;
+  repeat
+    iRead := FReadIndex;
+    iMaxRead := FReadIndexMax;
+
+    if IndexOf(iRead) = IndexOf(iMaxRead) then
+      exit(T(nil));
+
+    Result := FData[IndexOf(iRead)];
+
+    TInterlocked.CompareExchange(FReadIndex, iRead+1, iRead, bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until bSuccess;
+
+  if IsManagedType(T) then
+  begin
+    p := @FData[IndexOf(iRead)];
+    TInterlocked.CompareExchange(p,nil,@Result);
+  end;
+end;
+
+destructor TQueue<T>.Destroy;
+begin
+  Clear;
+  inherited;
+end;
+
+procedure TQueue<T>.Enqueue(Value: T);
+var
+  bSuccess : boolean;
+  iRead, iWrite : integer;
+  sw : TSpinWait;
+begin
+  sw.Reset;
+  repeat
+    iWrite := FWriteIndex;
+    iRead := FReadIndex;
+    if IndexOf(iWrite + 1) = IndexOf(iRead) then
+      raise EQueueSizeException.Create(S_ARRAYISFULL);
+    TInterlocked.CompareExchange(FWriteIndex, iWrite+1, iWrite, bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until bSuccess;
+
+  FData[IndexOf(iWrite)] := Value;
+
+  sw.Reset;
+  repeat
+    TInterlocked.CompareExchange(FReadIndexMax, iWrite+1, iWrite, bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until (bSuccess);
+end;
+
+function TQueue<T>.GetItems(idx: integer): T;
+begin
+  Result := FData[IndexOf(idx)];
+end;
+
+function TQueue<T>.GetLength: integer;
+begin
+  Result := FWriteIndexMax - FReadIndexMax;
+end;
+
+function TQueue<T>.IndexOf(idx: integer): integer;
+begin
+  result := idx mod FSize;
+end;
 
 { TStack<T> }
 
@@ -112,7 +250,7 @@ end;
 destructor TStack<T>.Destroy;
 begin
   Clear;
-  Dispose(FFirst);
+  Dispose(PStackPointer(FFirst));
   inherited;
 end;
 
@@ -138,7 +276,7 @@ begin
     if bSucceeded then
     begin
       Result := p^.FData;
-      Dispose(pTop);
+      Dispose(PStackPointer(pTop));
     end else
     begin
       wait.SpinCycle;
@@ -252,10 +390,11 @@ begin
       while p <> nil do
       begin
         pNext := p^.Next;
-        Dispose(p);
+        p^.Value := V(nil);
+        Dispose(PItem(p));
         p := pNext;
       end;
-      Dispose(FItems[i]);
+      Dispose(PItem(FItems[i]));
     end;
   inherited;
 end;
@@ -277,8 +416,9 @@ end;
 function THash<K, V>.GetMap(Key: K): V;
 var
   p, pPrior : PItem;
+  iDepth : integer;
 begin
-  GetMapPointer(Key, GetHashIndex(Key), pPrior, p);
+  GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
   if p <> nil then
   begin
     Result := p.Value;
@@ -286,11 +426,11 @@ begin
     Result := V(nil);
 end;
 
-function THash<K, V>.GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem): Boolean;
+procedure THash<K, V>.GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
 var
   p : PItem;
 begin
-  Result := False;
+  Depth := 0;
   Prior := nil;
   p := FItems[HashIdx];
   if p <> nil then
@@ -300,6 +440,7 @@ begin
       repeat
         Prior := p;
         p := p.Next;
+        inc(Depth);
       until (p = nil) or FComparer.Equals(p.Key, Key);
 
       if p <> nil then
@@ -308,7 +449,6 @@ begin
         Current := nil;
     end else
       Current := p;
-    Result := Prior <> nil;
   end else
     Current := nil;
 end;
@@ -316,25 +456,28 @@ end;
 procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait);
 var
   p, pNew, pDisp, pPrior : PItem;
-  idx : Integer;
-  bSlotNotEmpty, bSuccess : boolean;
+  iDepth, idx : Integer;
+  bSuccess : boolean;
+  vValue : V;
 begin
-  if NewItem = nil then
-  begin
-    New(pNew);
-    pNew.Key := Key;
-    pNew.Value := Value;
-  end else
-    pNew := NewItem;
-  pNew.Next := nil;
-
   idx := GetHashIndex(Key);
   pPrior := nil;
-  bSlotNotEmpty := GetMapPointer(Key, idx, pPrior, p);
-  if bSlotNotEmpty then
+  GetMapPointer(Key, idx, pPrior, p, iDepth);
+
+  if p = nil then
   begin
-    if p = nil then // New Key not found in list.
+    if NewItem = nil then
     begin
+      New(pNew);
+      pNew.Key := Key;
+      pNew.Value := Value;
+    end else
+      pNew := NewItem;
+    pNew.Next := nil;
+
+    if iDepth > 0 then
+    begin
+      // Slot occupied but key not found
       pNew.Next := p;
       TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
       if not bSuccess then
@@ -342,31 +485,21 @@ begin
         wait.SpinCycle;
         SetMap(Key,Value, pNew, wait);
       end;
-    end else // Key Found, updating
+    end else
     begin
-      pDisp := p;
-      pNew.Next := p^.Next;
-      TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
+      // Slot open, start linked list with key
+      TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
       if not bSuccess then
       begin
         wait.SpinCycle;
         SetMap(Key,Value, pNew, wait);
       end else
-      begin
-        Dispose(pDisp);
-      end;
+        if p <> nil then
+          Dispose(p);
     end;
   end else
   begin
-    // New Key at position, add a new one.
-    TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
-    if not bSuccess then
-    begin
-      wait.SpinCycle;
-      SetMap(Key,Value, pNew, wait);
-    end else
-      if p <> nil then
-        Dispose(p);
+    TInterlocked.Exchange<V>(p^.Value,Value);
   end;
 end;
 

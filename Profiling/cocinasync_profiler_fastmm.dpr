@@ -1,17 +1,18 @@
-program cocinasync_profiler;
+program cocinasync_profiler_fastmm;
 
 {$APPTYPE CONSOLE}
 
 {$R *.res}
 
 uses
-  ScaleMM2,
+  FastMM4,
   System.SysUtils,
   System.Classes,
   cocinasync.global,
   cocinasync.async,
   cocinasync.jobs,
   cocinasync.profiler in 'cocinasync.profiler.pas';
+
 
 var
   logproc : TLogProc;
@@ -26,7 +27,7 @@ begin
     try
       slProfile := TStringList.Create;
       try
-        sFilename := ExtractFilePath(ParamStr(0))+'profile_scalemm.log';
+        sFilename := ExtractFilePath(ParamStr(0))+'profile_fastmm.log';
         if FileExists(sFilename) then
           DeleteFile(sFilename);
 
@@ -81,4 +82,5 @@ begin
     on E: Exception do
       Writeln(E.ClassName, ': ', E.Message);
   end;
+
 end.

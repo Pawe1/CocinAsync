@@ -13,6 +13,7 @@ type
     class procedure SetupTest(const LogHeader : string; const Log : TLogProc; const TestProc : TTestProc);
     class procedure DoHashIteration(RunCnt, IterationSize, ThreadCount: Integer; const Log : TLogProc); static;
     class procedure DoStackIteration(RunCnt, IterationSize, ThreadCount: Integer; const Log : TLogProc); static;
+    class procedure DoQueueIteration(RunCnt, IterationSize, ThreadCount: Integer; const Log : TLogProc); static;
   public
     class procedure DoTest(RunCount : Integer; const Log : TLogProc);
   end;
@@ -29,6 +30,13 @@ class procedure TProfiles.DoTest(RunCount : Integer; const Log: TLogProc);
   begin
     Log(iCnt.ToString + ' Thread Test - Avg of '+RunCount.ToString+' runs');
     Log('------------------');
+    DoQueueIteration(RunCount, 1, iCnt, Log);
+    DoQueueIteration(RunCount, 100, iCnt, Log);
+    DoQueueIteration(RunCount, 250, iCnt, Log);
+    DoQueueIteration(RunCount, 500, iCnt, Log);
+    DoQueueIteration(RunCount, 750, iCnt, Log);
+    DoQueueIteration(RunCount, 1000, iCnt, Log);
+    DoQueueIteration(RunCount, 10000, iCnt, Log);
     DoStackIteration(RunCount, 1, iCnt, Log);
     DoStackIteration(RunCount, 100, iCnt, Log);
     DoStackIteration(RunCount, 250, iCnt, Log);
@@ -259,12 +267,251 @@ begin
         CLog.Add((Round((DepthS.EmptyCnt+DepthI.EmptyCnt+DepthO.EmptyCnt) / (DepthS.Size*3)*10000)/100).ToString);
         CLog.Add((Max(Max(DepthS.MaxDepth, DepthI.MaxDepth), DepthO.MaxDepth) ).ToString);
         CLog.Add((Round((DepthS.Average+DepthI.Average+DepthO.Average) / (DepthS.Size*3)*10000)/100).ToString);
-        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
 
 
+      finally
+        chs.Free;
+        chi.Free;
+        cho.Free;
+        dhs.Free;
+        dhi.Free;
+        dho.Free;
+        dhcs.Free;
+      end;
+    end
+  );
+end;
+
+class procedure TProfiles.DoQueueIteration(RunCnt, IterationSize,
+  ThreadCount: Integer; const Log: TLogProc);
+begin
+  Log('Queue '+IterationSize.ToString+' Each');
+  SetupTest('Strings'#9'Ints'#9'Objs'#9'Dequeue',
+    Log,
+    procedure(CLog, DLog, TLog : TStrings)
+    var
+      chs : cocinasync.collections.TQueue<String>;
+      chi : cocinasync.collections.TQueue<Integer>;
+      cho : cocinasync.collections.TQueue<TObject>;
+      dhs : system.generics.collections.TQueue<String>;
+      dhi : system.generics.collections.TQueue<Integer>;
+      dho : system.generics.collections.TQueue<TObject>;
+      dhcs : TCriticalSection;
+      p : TParallel.TLoopResult;
+      iThreadsComplete : integer;
+      iTimeDHS, iTimeDHI, iTimeDHO, iTimeDHL : Int64;
+      iTimeCHS, iTimeCHI, iTimeCHO, iTimeCHL : Int64;
+      i: Integer;
+    begin
+      iThreadsComplete := 0;
+      iTimeDHS := 0;
+      iTimeDHI := 0;
+      iTimeDHO := 0;
+      iTimeDHL := 0;
+      iTimeCHS := 0;
+      iTimeCHI := 0;
+      iTimeCHO := 0;
+      iTimeCHL := 0;
+      chs := cocinasync.collections.TQueue<String>.Create((IterationSize*RunCnt*ThreadCount)+100);
+      chi := cocinasync.collections.TQueue<Integer>.Create((IterationSize*RunCnt*ThreadCount)+100);
+      cho := cocinasync.collections.TQueue<TObject>.Create((IterationSize*RunCnt*ThreadCount)+100);
+      dhs := system.generics.collections.TQueue<String>.Create;
+      dhi := system.generics.collections.TQueue<Integer>.Create;
+      dho := system.generics.collections.TQueue<TObject>.Create;
+      dhcs := TCriticalSection.Create;
+      try
+        for i := 1 to RunCnt do
+        begin
+          p := TParallel.For(1,ThreadCount,
+            procedure(idx : integer)
+            var
+              sw : TStopWatch;
+              i: Integer;
+            begin
+              try
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  if ThreadCount > 1 then
+                    dhcs.Enter;
+                  try
+                    dhs.Enqueue(TThread.Current.ThreadID.ToString+'~'+i.ToString);
+                  finally
+                    if ThreadCount > 1 then
+                      dhcs.Leave;
+                  end;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeDHS, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                  chs.Enqueue(TThread.Current.ThreadID.ToString+'~'+i.ToString);
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeCHS, sw.ElapsedTicks);
+                  end
+                );
+
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  if ThreadCount > 1 then
+                    dhcs.Enter;
+                  try
+                    dhi.Enqueue(i);
+                  finally
+                    if ThreadCount > 1 then
+                      dhcs.Leave;
+                  end;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeDHI, sw.ElapsedTicks);
+                  end
+                );
+
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                  chi.Enqueue(i);
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeCHI, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  if ThreadCount > 1 then
+                    dhcs.Enter;
+                  try
+                    dho.Enqueue(dho);
+                  finally
+                    if ThreadCount > 1 then
+                      dhcs.Leave;
+                  end;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeDHO, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                  cho.Enqueue(cho);
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeCHO, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  if ThreadCount > 1 then
+                    dhcs.Enter;
+                  try
+                    dhs.Dequeue;
+                    dhi.Dequeue;
+                    dho.Dequeue;
+                  finally
+                    if ThreadCount > 1 then
+                      dhcs.Leave;
+                  end;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeDHL, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  chs.Dequeue;
+                  chi.Dequeue;
+                  cho.Dequeue;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeCHL, sw.ElapsedTicks);
+                  end
+                );
+              finally
+                TInterlocked.Increment(iThreadsComplete);
+              end;
+            end
+          );
+
+          while not p.Completed do
+            sleep(10);
+          while iThreadsComplete < ThreadCount do
+            sleep(10);
+        end;
+
+        DLog.Add((Round(iTimeDHS / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHI / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHO / RunCnt * 100) / 100).ToString);
+        DLog.Add((Round(iTimeDHL / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHS / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
+        CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
       finally
         chs.Free;
         chi.Free;
@@ -475,10 +722,22 @@ begin
         CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
-        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
       finally
         chs.Free;
         chi.Free;

@@ -25,10 +25,16 @@ type
     [TestCase('TestStack-8.5','8, 1000,5')]
     [TestCase('TestStack-10','10, 10000,1')]
     [TestCase('TestStack-100','100, 100000, 0')]
-    procedure TestStack(ThreadCount, ItemsCount, Delay : Integer);
+    procedure TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
     procedure TestHash;
+
+    [Test]
+    procedure TestQueue;
+
+    [Test]
+    procedure TestStack;
 
     [Test]
     [TestCase('TestHash-8','2, 1000, 0')]
@@ -56,39 +62,54 @@ type
 
 procedure TestCollections.TestHash;
 var
-  i: Integer;
   h : THash<integer,integer>;
-  ary : TArray<string>;
+  hs : THash<integer, string>;
+  ho : THash<integer, TObject>;
+  s : string;
 begin
-  SetLength(ary,1000);
   h := THash<integer,integer>.Create;
   try
     // set first to a value
-    for i := 1 to 1000 do
-    begin
-      h[i] := 890000+i;
-    end;
+    h[1] := 890000;
 
     // update to another value
-    for i := 1 to 1000 do
-    begin
-      h[i] := 990000+i;
-    end;
+    h[1] := 990000;
 
     // make sure updated value is in the hash
-    for i := 1 to 1000 do
-    begin
-      if h[i] = 990000+i then
-        ary[i-1] := ''
+    if h[1] = 990000 then
+      s := ''
       else
-        ary[i-1] := 'Expected '+(990000+i).ToString+' found '+h[i].ToString;
-    end;
+      s := 'Expected '+(990000).ToString+' found '+h[1].ToString;
   finally
     h.Free;
   end;
-  for i := 0 to length(ary)-1 do
-    if ary[i] <> '' then
-      Assert.Fail(ary[i]);
+
+  if s <> '' then
+    Assert.Fail(s);
+
+  hs := THash<integer, string>.Create;
+  try
+    hs[2] := '990000';
+
+    hs[2] := '890000';
+
+    if hs[2] <> '890000' then
+      s := 'Expected 890000 found '+hs[2]
+    else
+      s := '';
+  finally
+    hs.Free;
+  end;
+
+  ho := THash<integer, TObject>.Create;
+  try
+    ho[3] := self;
+    ho[3] := ho;
+    if ho[3] <> ho then
+      Assert.Fail('Wrong Object in Hash');
+  finally
+    ho.Free;
+  end;
 
   Assert.Pass;
 end;
@@ -172,7 +193,47 @@ begin
   Assert.Pass;
 end;
 
-procedure TestCollections.TestStack(ThreadCount, ItemsCount, Delay : Integer);
+procedure TestCollections.TestQueue;
+var
+  queue : TQueue<integer>;
+  i: Integer;
+begin
+  queue := TQueue<integer>.Create(101);
+  try
+    for i := 1 to 100 do
+      queue.Enqueue(i);
+
+    for i := 1 to 100 do
+      if queue.dequeue <> i then
+        Assert.Fail('Expected '+i.ToString);
+
+    Assert.Pass;
+  finally
+    queue.Free;
+  end;
+end;
+
+procedure TestCollections.TestStack;
+var
+  stack : TStack<integer>;
+  i: Integer;
+begin
+  stack := TStack<integer>.Create;
+  try
+    for i := 1 to 100 do
+      stack.Push(i);
+
+    for i := 100 downto 1 do
+      if stack.pop <> i then
+        Assert.Fail('Expected '+i.ToString);
+
+    Assert.Pass;
+  finally
+    stack.Free;
+  end;
+end;
+
+procedure TestCollections.TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 var
   ary : TArray<TThread>;
   iEndCount : integer;

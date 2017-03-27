@@ -33,7 +33,7 @@ type
     destructor Destroy; override;
     procedure Wake(Sender : TObject);
     procedure CheckSynchronize(Timeout : Integer = INFINITE);
-    class procedure ApplicationLoop(&Until : TFunc<Boolean>);
+    class procedure ApplicationLoop(const &Until : TFunc<Boolean>);
   end;
 
 implementation
@@ -112,14 +112,14 @@ begin
   inherited;
 end;
 
-class procedure TConsole.ApplicationLoop(&Until: TFunc<Boolean>);
+class procedure TConsole.ApplicationLoop(const &Until: TFunc<Boolean>);
 var
   CS : TConsole;
 begin
   CS := TConsole.Create;
   try
     repeat
-      CS.CheckSynchronize;
+      CS.CheckSynchronize(1000);
     until not &Until();
   finally
     CS.Free;

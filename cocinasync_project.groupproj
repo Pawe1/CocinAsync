@@ -12,6 +12,9 @@
         <Projects Include="Profiling\cocinasync_profiler.dproj">
             <Dependencies/>
         </Projects>
+        <Projects Include="Profiling\cocinasync_profiler_fastmm.dproj">
+            <Dependencies/>
+        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -47,14 +50,23 @@
     <Target Name="cocinasync_profiler:Make">
         <MSBuild Projects="Profiling\cocinasync_profiler.dproj" Targets="Make"/>
     </Target>
+    <Target Name="cocinasync_profiler_fastmm">
+        <MSBuild Projects="Profiling\cocinasync_profiler_fastmm.dproj"/>
+    </Target>
+    <Target Name="cocinasync_profiler_fastmm:Clean">
+        <MSBuild Projects="Profiling\cocinasync_profiler_fastmm.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="cocinasync_profiler_fastmm:Make">
+        <MSBuild Projects="Profiling\cocinasync_profiler_fastmm.dproj" Targets="Make"/>
+    </Target>
     <Target Name="Build">
-        <CallTarget Targets="cocinasync;cocinasync_tests;cocinasync_profiler"/>
+        <CallTarget Targets="cocinasync;cocinasync_tests;cocinasync_profiler;cocinasync_profiler_fastmm"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="cocinasync:Clean;cocinasync_tests:Clean;cocinasync_profiler:Clean"/>
+        <CallTarget Targets="cocinasync:Clean;cocinasync_tests:Clean;cocinasync_profiler:Clean;cocinasync_profiler_fastmm:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="cocinasync:Make;cocinasync_tests:Make;cocinasync_profiler:Make"/>
+        <CallTarget Targets="cocinasync:Make;cocinasync_tests:Make;cocinasync_profiler:Make;cocinasync_profiler_fastmm:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
