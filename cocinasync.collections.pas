@@ -30,7 +30,7 @@ type
     FReadIndexMax : integer;
     function IndexOf(idx : integer) : integer; inline;
     function GetItems(idx: integer): T;
-    function GetLength: integer;
+    function GetCount: integer;
   public
     constructor Create(Size : Integer); reintroduce; virtual;
     destructor Destroy; override;
@@ -40,7 +40,7 @@ type
     procedure Clear; inline;
 
     property Items[idx : integer] : T read GetItems; default;
-    property Length : integer read GetLength;
+    property Count : integer read GetCount;
   end;
 
   TStack<T> = class(TObject)
@@ -63,6 +63,8 @@ type
     function Peek: T; inline;
     procedure Clear;
   end;
+
+  TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
 
   THash<K,V> = class(TObject)
   strict private
@@ -88,6 +90,7 @@ type
     function GetHas(Key: K): boolean;
     function GetHashIndex(Key : K) : Integer; //inline;
     function CalcDepth(item: PItem): integer; //inline;
+    procedure Remove(const Key : K; const wait : TSpinWait); overload;
   public
     type
       TDepth = record
@@ -102,10 +105,11 @@ type
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
-    procedure Delete(const Key : K);
+    procedure Remove(const Key : K); overload;
     procedure AddOrSetValue(const Key : K; const Value : V);
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
+    procedure Visit(const visitor : TVisitorProc<K,V>);
   end;
 
 implementation
@@ -214,7 +218,7 @@ begin
   Result := FData[IndexOf(idx)];
 end;
 
-function TQueue<T>.GetLength: integer;
+function TQueue<T>.GetCount : integer;
 begin
   Result := FWriteIndexMax - FReadIndexMax;
 end;
@@ -373,9 +377,35 @@ begin
     Result.AvgFilled := Result.Average;
 end;
 
-procedure THash<K, V>.Delete(const Key: K);
+procedure THash<K, V>.Remove(const Key: K; const wait: TSpinWait);
+var
+  p, pPrior : PItem;
+  iDepth : integer;
+  bSuccess : boolean;
 begin
-  SetMap(Key, V(nil));
+  GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
+  if p <> nil then
+  begin
+    if pPrior = nil then
+      TInterlocked.CompareExchange(FItems[GetHashIndex(Key)],p^.Next, p, bSuccess)
+    else
+      TInterlocked.CompareExchange(pPrior^.Next, p^.Next, p, bSuccess);
+
+    if not bSuccess then
+    begin
+      wait.SpinCycle;
+      Remove(Key, wait);
+    end else
+      Dispose(p);
+  end;
+end;
+
+procedure THash<K, V>.Remove(const Key: K);
+var
+  sw : TSpinWait;
+begin
+  sw.Reset;
+  Remove(Key, sw);
 end;
 
 destructor THash<K, V>.Destroy;
@@ -511,4 +541,27 @@ begin
   SetMap(Key, Value, nil, sw);
 end;
 
+procedure THash<K, V>.Visit(const visitor: TVisitorProc<K,V>);
+var
+  p : PItem;
+  del : boolean;
+  i : integer;
+begin
+  for i := low(FItems) to High(FItems) do
+  begin
+    p := FItems[i];
+    if p <> nil then
+    begin
+      repeat
+        del := False;
+        visitor(p^.Key, p^.Value, del);
+        if del then
+          Remove(p^.Key);
+        p := p^.Next;
+      until p = nil
+    end;
+  end;
+end;
+
 end.
+
