@@ -267,10 +267,22 @@ begin
         CLog.Add((Round((DepthS.EmptyCnt+DepthI.EmptyCnt+DepthO.EmptyCnt) / (DepthS.Size*3)*10000)/100).ToString);
         CLog.Add((Max(Max(DepthS.MaxDepth, DepthI.MaxDepth), DepthO.MaxDepth) ).ToString);
         CLog.Add((Round((DepthS.Average+DepthI.Average+DepthO.Average) / (DepthS.Size*3)*10000)/100).ToString);
-        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
 
 
       finally
@@ -484,10 +496,22 @@ begin
         CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
-        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
       finally
         chs.Free;
         chi.Free;
@@ -698,10 +722,22 @@ begin
         CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
         CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
-        TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString);
-        TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString);
+        if iTimeDHS > 0 then
+          TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHI > 0 then
+          TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHO > 0 then
+          TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
+        if iTimeDHL > 0 then
+          TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
       finally
         chs.Free;
         chi.Free;
