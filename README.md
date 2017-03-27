@@ -109,6 +109,45 @@ end;
 
 *A background job runner which easily executes tasks in the background*
 
+Delphi's System.Threading unit includes a Task execution library which on it's surface is very useful.  It suffers from a throttling algorithm that can cause performance issues for some workloads.  Jobs is an attempt to execute background tasks in a highly performant way through natural throttling based on workload and system capacity.  By default a global Jobs runner is created with one running thread per logical processor on the system.  
+
+
+```
+#!delphi
+
+Jobs.Queue(
+  procedure
+  begin
+    // Add something to the Jobs Queue and execute as soon as possible
+  end
+);
+
+```
+
+Depending upon workload, it may be desirable to create a separate jobs queue for a particular workload.  To do so call CreateJobs() with the number of threads you wish to dedicate to running the jobs.
+
+
+```
+#!delphi
+
+procedure FormCreate(Sender : TObject);
+begin
+  FJobs := CreateJobs(25); // Create a Jobs Runner with 25 threads
+end; 
+
+procedure Button1Click(Sender : TObject);
+begin
+  FJobs.Queue(
+    procedure
+    begin
+      // Add some workload to the jobs runner
+    end
+  );
+end;
+
+```
+
+
 ### Contribution guidelines ###
 
 * Fork and PR
