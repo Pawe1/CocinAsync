@@ -49,18 +49,19 @@ type
     TStackPointer = record
       FData : T;
       FPrior : Pointer;
+      FLocker : integer;
     end;
   strict private
     FTop : Pointer;
     FFirst : Pointer;
-    function Pop(const wait : TSpinWait) : T; overload; inline;
+    function Pop(const wait : TSpinWait) : T; overload; //inline;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
-    procedure Push(const Value: T); inline;
-    function Pop: T; overload; inline;
-    function Peek: T; inline;
+    procedure Push(const Value: T); //inline;
+    function Pop: T; overload; //inline;
+    function Peek: T; //inline;
     procedure Clear;
   end;
 
@@ -259,12 +260,23 @@ begin
 end;
 
 function TStack<T>.Peek: T;
+var
+  pTop : PStackPointer;
+  bSuccess : boolean;
 begin
-  if FTop <> nil then
-  begin
-    Result := PStackPointer(FTop)^.FData;
-  end else
-    Result := T(nil);
+  repeat
+    pTop := FTop;
+    if (pTop <> nil) and (pTop <> FFirst) then
+    begin
+      TInterlocked.CompareExchange(pTop^.FLocker, TThread.Current.ThreadID, 0, bSuccess);
+      if bSuccess then
+      begin
+        Result := PStackPointer(FTop)^.FData;
+        TInterlocked.CompareExchange(pTop^.FLocker, 0, TThread.Current.ThreadID, bSuccess);
+      end;
+    end else
+      exit(T(nil));
+  until bSuccess;
 end;
 
 function TStack<T>.Pop(const wait : TSpinWait): T;
@@ -277,11 +289,19 @@ begin
     pTop := FTop;
     if (pTop <> nil) and (pTop <> FFirst) then
     begin
-      p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
+      TInterlocked.CompareExchange(pTop^.FLocker, TThread.Current.ThreadID, 0, bSucceeded);
       if bSucceeded then
       begin
-        Result := p^.FData;
-        Dispose(PStackPointer(pTop));
+        p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
+        if bSucceeded then
+        begin
+          Result := p^.FData;
+          Dispose(PStackPointer(pTop));
+        end else
+        begin
+          TInterlocked.CompareExchange(pTop^.FLocker, 0, TThread.Current.ThreadID, bSucceeded);
+          wait.SpinCycle;
+        end;
       end else
         wait.SpinCycle;
     end else
@@ -308,6 +328,7 @@ var
 begin
   New(p);
   p^.FData := Value;
+  p^.FLocker := 0;
   bSuccess := False;
   sw.Reset;
   repeat
