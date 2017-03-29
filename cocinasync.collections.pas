@@ -273,21 +273,23 @@ var
   iCnt : integer;
   bSucceeded : boolean;
 begin
-  pTop := FTop;
-  if (pTop <> nil) and (pTop <> FFirst) then
-  begin
-    p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
-    if bSucceeded then
+  repeat
+    pTop := FTop;
+    if (pTop <> nil) and (pTop <> FFirst) then
     begin
-      Result := p^.FData;
-      Dispose(PStackPointer(pTop));
+      p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
+      if bSucceeded then
+      begin
+        Result := p^.FData;
+        Dispose(PStackPointer(pTop));
+      end else
+        wait.SpinCycle;
     end else
     begin
-      wait.SpinCycle;
-      Result := Pop(wait);
+      Result := T(nil);
+      bSucceeded := True;
     end;
-  end else
-    Result := T(nil);
+  until bSucceeded;
 end;
 
 function TStack<T>.Pop: T;
