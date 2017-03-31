@@ -32,7 +32,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure Wake(Sender : TObject);
-    procedure CheckSynchronize(Timeout : Integer = INFINITE);
+    procedure CheckSynchronize(Timeout : Cardinal = INFINITE);
     class procedure ApplicationLoop(const &Until : TFunc<Boolean>);
   end;
 
@@ -93,7 +93,7 @@ end;
 
 { TConsoleSync }
 
-procedure TConsole.CheckSynchronize(Timeout : Integer = INFINITE);
+procedure TConsole.CheckSynchronize(Timeout : Cardinal = INFINITE);
 begin
   FEvent.WaitFor(Timeout);
   System.Classes.CheckSynchronize;
