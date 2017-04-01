@@ -29,8 +29,8 @@ type
     FWriteIndexMax : integer;
     FReadIndexMax : integer;
     function IndexOf(idx : integer) : integer; inline;
-    function GetItems(idx: integer): T;
-    function GetCount: integer;
+    function GetItems(idx: integer): T;  inline;
+    function GetCount: integer;  inline;
   public
     constructor Create(Size : Integer); reintroduce; virtual;
     destructor Destroy; override;
@@ -49,20 +49,21 @@ type
     TStackPointer = record
       FData : T;
       FPrior : Pointer;
-      FLocker : integer;
     end;
   strict private
     FTop : Pointer;
-    FFirst : Pointer;
-    function Pop(const wait : TSpinWait) : T; overload; //inline;
+    FDisposeQueue : TQueue<PStackPointer>;
+    FPushMisses: Int64;
+    FPopMisses: Int64;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
-    procedure Push(const Value: T); //inline;
-    function Pop: T; overload; //inline;
-    function Peek: T; //inline;
-    procedure Clear;
+    procedure Push(const Value: T); inline;
+    function Pop: T; overload; inline;
+    procedure Clear; inline;
+    property PushMisses : Int64 read FPushMisses;
+    property PopMisses : Int64 read FPopMisses;
   end;
 
   TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
@@ -84,14 +85,14 @@ type
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
-    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
-    function GetMap(Key: K): V;
-    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; //inline;
-    procedure SetMap(Key: K; const Value: V); overload;
-    function GetHas(Key: K): boolean;
-    function GetHashIndex(Key : K) : Integer; //inline;
-    function CalcDepth(item: PItem): integer; //inline;
-    procedure Remove(const Key : K; const wait : TSpinWait); overload;
+    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer); inline;
+    function GetMap(Key: K): V;  inline;
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; inline;
+    procedure SetMap(Key: K; const Value: V); overload;  inline;
+    function GetHas(Key: K): boolean; inline;
+    function GetHashIndex(Key : K) : Integer; inline;
+    function CalcDepth(item: PItem): integer; inline;
+    procedure Remove(const Key : K; const wait : TSpinWait); overload; inline;
   public
     type
       TDepth = record
@@ -106,8 +107,8 @@ type
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
-    procedure Remove(const Key : K); overload;
-    procedure AddOrSetValue(const Key : K; const Value : V);
+    procedure Remove(const Key : K); overload;  inline;
+    procedure AddOrSetValue(const Key : K; const Value : V);  inline;
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
     procedure Visit(const visitor : TVisitorProc<K,V>);
@@ -221,7 +222,7 @@ end;
 
 function TQueue<T>.GetCount : integer;
 begin
-  Result := FWriteIndexMax - FReadIndexMax;
+  Result := FReadIndexMax - FReadIndex;
 end;
 
 function TQueue<T>.IndexOf(idx: integer): integer;
@@ -232,114 +233,96 @@ end;
 { TStack<T> }
 
 procedure TStack<T>.Clear;
-var
-  val : T;
-  bAssigned : boolean;
 begin
-  while FTop <> FFirst do
+  while FTop <> nil do
     Pop;
 end;
 
 constructor TStack<T>.Create;
-var
-  p : PStackPointer;
 begin
   inherited Create;
-  New(p);
-  p^.FData := T(nil);
-  p^.FPrior := nil;
-  FFirst := p;
-  FTop := p;
+  FTop := nil;
+  FDisposeQueue := TQueue<PStackPointer>.Create(256);
+  FPushMisses := 0;
+  FPopMisses := 0;
 end;
 
 destructor TStack<T>.Destroy;
+var
+  p : PStackPointer;
 begin
   Clear;
-  Dispose(PStackPointer(FFirst));
+  repeat
+    p := FDisposeQueue.Dequeue;
+    if p <> nil then
+      Dispose(p);
+  until p = nil;
+  FDisposeQueue.Free;
   inherited;
-end;
-
-function TStack<T>.Peek: T;
-var
-  pTop : PStackPointer;
-  bSuccess : boolean;
-begin
-  repeat
-    pTop := FTop;
-    if (pTop <> nil) and (pTop <> FFirst) then
-    begin
-      TInterlocked.CompareExchange(pTop^.FLocker, TThread.Current.ThreadID, 0, bSuccess);
-      if bSuccess then
-      begin
-        Result := PStackPointer(FTop)^.FData;
-        TInterlocked.CompareExchange(pTop^.FLocker, 0, TThread.Current.ThreadID, bSuccess);
-      end;
-    end else
-      exit(T(nil));
-  until bSuccess;
-end;
-
-function TStack<T>.Pop(const wait : TSpinWait): T;
-var
-  p, pTop : PStackPointer;
-  iCnt : integer;
-  bSucceeded : boolean;
-begin
-  repeat
-    pTop := FTop;
-    if (pTop <> nil) and (pTop <> FFirst) then
-    begin
-      TInterlocked.CompareExchange(pTop^.FLocker, TThread.Current.ThreadID, 0, bSucceeded);
-      if bSucceeded then
-      begin
-        p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
-        if bSucceeded then
-        begin
-          Result := p^.FData;
-          Dispose(PStackPointer(pTop));
-        end else
-        begin
-          TInterlocked.CompareExchange(pTop^.FLocker, 0, TThread.Current.ThreadID, bSucceeded);
-          wait.SpinCycle;
-        end;
-      end else
-        wait.SpinCycle;
-    end else
-    begin
-      Result := T(nil);
-      bSucceeded := True;
-    end;
-  until bSucceeded;
 end;
 
 function TStack<T>.Pop: T;
 var
-  sw : TSpinWait;
+  p : PStackPointer;
+  bSuccess : boolean;
+  wait : TSpinWait;
 begin
-  sw.Reset;
-  Result := Pop(sw);
+  wait.Reset;
+
+  if FTop = nil then
+    exit(T(nil));
+
+  repeat
+    p := FTop;
+    if p <> nil then
+      TInterlocked.CompareExchange(FTop,p^.FPrior, p, bSuccess)
+    else
+      exit(T(nil));
+    if not bSuccess then
+    begin
+      wait.SpinCycle;
+      TInterlocked.Increment(FPopMisses);
+    end;
+  until bSuccess;
+
+  Result := p^.FData;
+
+  FDisposeQueue.Enqueue(p);
+  if FDisposeQueue.Count > 192 then
+  begin
+    while FDisposeQueue.Count > 128 do
+    begin
+      p := FDisposeQueue.Dequeue;
+      if p <> nil then
+        Dispose(p);
+    end;
+  end;
 end;
 
 procedure TStack<T>.Push(const Value: T);
 var
-  ptop, p : PStackPointer;
+  pNew : PStackPointer;
+  wait : TSpinWait;
   bSuccess : boolean;
-  sw : TSpinWait;
 begin
-  New(p);
-  p^.FData := Value;
-  p^.FLocker := 0;
-  bSuccess := False;
-  sw.Reset;
+  wait.Reset;
+  if FDisposeQueue.Count > 64 then
+    pNew := FDisposeQueue.Dequeue
+  else
+    New(pNew);
+  pNew^.FData := Value;
   repeat
-    p.FPrior := FTop;
-    TInterlocked.CompareExchange(FTop, p, p^.FPrior, bSuccess);
+    pNew^.FPrior := FTop;
+    TInterlocked.CompareExchange(FTop,pNew, pNew^.FPrior,bSuccess);
     if not bSuccess then
     begin
-      sw.SpinCycle;
+      wait.SpinCycle;
+      TInterlocked.Increment(FPushMisses);
     end;
   until bSuccess;
 end;
+
+
 
 { THash<K, V> }
 
