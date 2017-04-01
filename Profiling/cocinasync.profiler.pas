@@ -528,7 +528,7 @@ end;
 class procedure TProfiles.DoStackIteration(RunCnt, IterationSize : integer; ThreadCount : Integer; const Log : TLogProc);
 begin
   Log('Stack '+IterationSize.ToString+' Each');
-  SetupTest('Strings'#9'Ints'#9'Objs'#9'Pops',
+  SetupTest('Strings'#9'Miss'#9'Ints'#9'Miss'#9'Objs'#9'Miss'#9'Pops'#9'Miss',
     Log,
     procedure(CLog, DLog, TLog : TStrings)
     var
@@ -715,29 +715,41 @@ begin
         end;
 
         DLog.Add((Round(iTimeDHS / RunCnt * 100) / 100).ToString);
+        DLog.Add('');
         DLog.Add((Round(iTimeDHI / RunCnt * 100) / 100).ToString);
+        DLog.Add('');
         DLog.Add((Round(iTimeDHO / RunCnt * 100) / 100).ToString);
+        DLog.Add('');
         DLog.Add((Round(iTimeDHL / RunCnt * 100) / 100).ToString);
+        DLog.Add('');
         CLog.Add((Round(iTimeCHS / RunCnt * 100) / 100).ToString);
+        CLog.Add(chs.PushMisses.ToString);
         CLog.Add((Round(iTimeCHI / RunCnt * 100) / 100).ToString);
+        CLog.Add(chi.PushMisses.ToString);
         CLog.Add((Round(iTimeCHO / RunCnt * 100) / 100).ToString);
+        CLog.Add(cho.PushMisses.ToString);
         CLog.Add((Round(iTimeCHL / RunCnt * 100) / 100).ToString);
+        CLog.Add((chs.PopMisses+chi.PopMisses+cho.PopMisses).ToString);
         if iTimeDHS > 0 then
           TLog.Add((Round(((iTimeDHS - iTimeCHS) / iTimeDHS)*10000) / 100).ToString)
         else
           TLog.Add('Err');
+        TLog.Add('');
         if iTimeDHI > 0 then
           TLog.Add((Round(((iTimeDHI - iTimeCHI) / iTimeDHI)*10000) / 100).ToString)
         else
           TLog.Add('Err');
+        TLog.Add('');
         if iTimeDHO > 0 then
           TLog.Add((Round(((iTimeDHO - iTimeCHO) / iTimeDHO)*10000) / 100).ToString)
         else
           TLog.Add('Err');
+        TLog.Add('');
         if iTimeDHL > 0 then
           TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
         else
           TLog.Add('Err');
+        TLog.Add('');
       finally
         chs.Free;
         chi.Free;
