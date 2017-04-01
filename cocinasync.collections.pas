@@ -26,7 +26,6 @@ type
     FSize : integer;
     FWriteIndex : integer;
     FReadIndex : integer;
-    FWriteIndexMax : integer;
     FReadIndexMax : integer;
     function IndexOf(idx : integer) : integer; inline;
     function GetItems(idx: integer): T;  inline;
@@ -81,7 +80,6 @@ type
     TItemArray = system.TArray<Pointer>;
   strict private
     FMemSize: Cardinal;
-    FSizeMask : Cardinal;
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
@@ -103,7 +101,7 @@ type
         Size : Cardinal;
       end;
   public
-    constructor Create(EstimatedItemCount : Integer = 1024); reintroduce; virtual;
+    constructor Create(EstimatedItemCount : Cardinal = 1024); reintroduce; virtual;
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
@@ -331,7 +329,7 @@ begin
   SetMap(Key, Value);
 end;
 
-constructor THash<K, V>.Create(EstimatedItemCount : Integer = 1024);
+constructor THash<K, V>.Create(EstimatedItemCount : Cardinal = 1024);
 var
   i: Integer;
 begin
