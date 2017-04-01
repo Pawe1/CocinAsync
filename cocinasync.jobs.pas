@@ -17,7 +17,7 @@ type
     procedure WaitForAll(Timeout : Cardinal = 0);
   end;
 
-function CreateJobs(RunnerCount : Cardinal = 0; SleepDelay : Cardinal = 10) : IJobs;
+function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
 
 var
   Jobs : IJobs;
@@ -43,18 +43,16 @@ type
 
   TJobRunner = class(TThread)
   strict private
-    FSleepDelay : Cardinal;
     [Weak]
     FJobs : TJobs;
   protected
     procedure Execute; override;
   public
-    constructor Create(Jobs : TJobs; SleepDelay : Cardinal); reintroduce; virtual;
+    constructor Create(Jobs : TJobs); reintroduce; virtual;
   end;
 
   TJobs = class(TInterfacedObject, IJobs)
   strict private
-    FSleepDelay : Cardinal;
     FTerminating : boolean;
     FRunners : TList<TJobRunner>;
     FJobs : TQueue<IJob>;
@@ -64,17 +62,17 @@ type
     FJobRunnerCount : integer;
     FJobsInProcess : integer;
   public
-    constructor Create(RunnerCount : Integer; SleepDelay : Cardinal); reintroduce; virtual;
+    constructor Create(RunnerCount : Integer); reintroduce; virtual;
     destructor Destroy; override;
 
-    function Next : IJob;
-    procedure Queue(const DoIt : TProc); overload;
-    procedure Queue(const Job : IJob); overload;
+    function Next : IJob; inline;
+    procedure Queue(const DoIt : TProc); overload; inline;
+    procedure Queue(const Job : IJob); overload; inline;
     procedure WaitForAll(Timeout : Cardinal = 0);
     property Terminating : boolean read FTerminating;
   end;
 
-function CreateJobs(RunnerCount : Cardinal = 0; SleepDelay : Cardinal = 10) : IJobs;
+function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
 var
   iCnt : Cardinal;
 begin
@@ -83,12 +81,12 @@ begin
   else
     iCnt := RunnerCount;
 
-  Result := TJobs.Create(iCnt, SleepDelay);
+  Result := TJobs.Create(iCnt);
 end;
 
 { TJobs }
 
-constructor TJobs.Create(RunnerCount: Integer; SleepDelay : Cardinal);
+constructor TJobs.Create(RunnerCount: Integer);
 begin
   inherited Create;
   FTerminating := False;
@@ -97,9 +95,8 @@ begin
   FJobRunnerCount := 0;
   FJobsInProcess := 0;
   FRunners := TList<TJobRunner>.Create;
-  FSleepDelay := SleepDelay;
   while FRunners.Count < RunnerCount do
-    FRunners.Add(TJobRunner.Create(Self, FSleepDelay));
+    FRunners.Add(TJobRunner.Create(Self));
 end;
 
 destructor TJobs.Destroy;
@@ -163,6 +160,10 @@ begin
   end;
   while FJobRunnerCount > 0 do
     Sleep(10);
+  for i := 0 to FRunners.Count-1 do
+  begin
+    FRunners[i].Free;
+  end;
   FRunners.Clear;
 end;
 
@@ -180,20 +181,21 @@ end;
 
 { TJobRunner }
 
-constructor TJobRunner.Create(Jobs : TJobs; SleepDelay : Cardinal);
+constructor TJobRunner.Create(Jobs : TJobs);
 begin
   inherited Create(False);
-  FSleepDelay := SleepDelay;
   FJobs := Jobs;
-  FreeOnTerminate := True;
+  FreeOnTerminate := False;
 end;
 
 procedure TJobRunner.Execute;
 var
+  wait : TSpinWait;
   job : IJob;
 begin
   TInterlocked.Increment(FJobs.FJobRunnerCount);
   try
+    wait.Reset;
     while not Terminated do
     begin
       job := FJobs.Next;
@@ -204,6 +206,7 @@ begin
 
         TInterlocked.Increment(FJobs.FJobsInProcess);
         try
+          wait.Reset;
           job.SetupJob;
           try
             job.ExecuteJob;
@@ -214,7 +217,7 @@ begin
           TInterlocked.Decrement(FJobs.FJobsInProcess);
         end;
       end else
-        sleep(FSleepDelay);
+        wait.SpinCycle;
     end;
   finally
     TInterlocked.Decrement(FJobs.FJobRunnerCount);

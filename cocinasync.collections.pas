@@ -26,7 +26,6 @@ type
     FSize : integer;
     FWriteIndex : integer;
     FReadIndex : integer;
-    FWriteIndexMax : integer;
     FReadIndexMax : integer;
     function IndexOf(idx : integer) : integer; inline;
     function GetItems(idx: integer): T;  inline;
@@ -53,8 +52,6 @@ type
   strict private
     FTop : Pointer;
     FDisposeQueue : TQueue<PStackPointer>;
-    FPushMisses: Int64;
-    FPopMisses: Int64;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
@@ -62,8 +59,6 @@ type
     procedure Push(const Value: T); inline;
     function Pop: T; overload; inline;
     procedure Clear; inline;
-    property PushMisses : Int64 read FPushMisses;
-    property PopMisses : Int64 read FPopMisses;
   end;
 
   TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
@@ -81,7 +76,6 @@ type
     TItemArray = system.TArray<Pointer>;
   strict private
     FMemSize: Cardinal;
-    FSizeMask : Cardinal;
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
@@ -103,7 +97,7 @@ type
         Size : Cardinal;
       end;
   public
-    constructor Create(EstimatedItemCount : Integer = 1024); reintroduce; virtual;
+    constructor Create(EstimatedItemCount : Cardinal = 1024); reintroduce; virtual;
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
@@ -243,8 +237,6 @@ begin
   inherited Create;
   FTop := nil;
   FDisposeQueue := TQueue<PStackPointer>.Create(256);
-  FPushMisses := 0;
-  FPopMisses := 0;
 end;
 
 destructor TStack<T>.Destroy;
@@ -279,10 +271,7 @@ begin
     else
       exit(T(nil));
     if not bSuccess then
-    begin
       wait.SpinCycle;
-      TInterlocked.Increment(FPopMisses);
-    end;
   until bSuccess;
 
   Result := p^.FData;
@@ -317,7 +306,6 @@ begin
     if not bSuccess then
     begin
       wait.SpinCycle;
-      TInterlocked.Increment(FPushMisses);
     end;
   until bSuccess;
 end;
@@ -331,7 +319,7 @@ begin
   SetMap(Key, Value);
 end;
 
-constructor THash<K, V>.Create(EstimatedItemCount : Integer = 1024);
+constructor THash<K, V>.Create(EstimatedItemCount : Cardinal = 1024);
 var
   i: Integer;
 begin
