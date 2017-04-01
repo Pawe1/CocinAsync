@@ -274,7 +274,7 @@ begin
                     if Assigned(obj) then
                     begin
                       TInterlocked.Decrement(iEndCount);
-                     // obj.Free;
+                      obj.Free;
                     end
                   end;
                 except
@@ -329,7 +329,7 @@ begin
       if Assigned(o) then
       begin
         dec(iEndCount);
-       // o.Free;
+        o.Free;
       end;
     end;
 
