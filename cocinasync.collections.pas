@@ -52,8 +52,6 @@ type
   strict private
     FTop : Pointer;
     FDisposeQueue : TQueue<PStackPointer>;
-    FPushMisses: Int64;
-    FPopMisses: Int64;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
@@ -61,8 +59,6 @@ type
     procedure Push(const Value: T); inline;
     function Pop: T; overload; inline;
     procedure Clear; inline;
-    property PushMisses : Int64 read FPushMisses;
-    property PopMisses : Int64 read FPopMisses;
   end;
 
   TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
@@ -241,8 +237,6 @@ begin
   inherited Create;
   FTop := nil;
   FDisposeQueue := TQueue<PStackPointer>.Create(256);
-  FPushMisses := 0;
-  FPopMisses := 0;
 end;
 
 destructor TStack<T>.Destroy;
@@ -277,10 +271,7 @@ begin
     else
       exit(T(nil));
     if not bSuccess then
-    begin
       wait.SpinCycle;
-      TInterlocked.Increment(FPopMisses);
-    end;
   until bSuccess;
 
   Result := p^.FData;
@@ -315,7 +306,6 @@ begin
     if not bSuccess then
     begin
       wait.SpinCycle;
-      TInterlocked.Increment(FPushMisses);
     end;
   until bSuccess;
 end;
