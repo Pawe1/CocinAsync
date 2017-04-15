@@ -60,6 +60,18 @@ begin
     // update to another value
     h[1] := 990000;
 
+    try
+      h.Add(1, 1000);
+      s := 'Did not raise exception when adding key that exists';
+    except
+      {on e: EKeyExists<integer> do
+        s := '';
+      else raise;    }
+    end;
+
+    if s <> '' then
+      Assert.Fail(s);
+
     // make sure updated value is in the hash
     if h[1] = 990000 then
       s := ''
@@ -68,6 +80,8 @@ begin
 
     if s <> '' then
       Assert.Fail(s);
+
+    Assert.AreEqual(h.Remove(1), 990000);
 
     h[2] := 123;
     h[3] := 235;
