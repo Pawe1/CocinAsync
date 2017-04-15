@@ -20,6 +20,11 @@ type
   EQueueSizeException = class(Exception)
   end;
 
+  EKeyExists<K> = class(Exception)
+  public
+    constructor Create(Key : K); reintroduce; virtual;
+  end;
+
   TQueue<T> = class(TObject)
   strict private
     FData : System.TArray<T>;
@@ -81,12 +86,13 @@ type
     FKeyType: PTypeInfo;
     procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer); inline;
     function GetMap(Key: K): V;  inline;
-    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; inline;
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait; AllowOverwrite : boolean); overload; inline;
+    procedure SetMap(Key: K; const Value: V; AllowOverwrite : boolean); overload;  inline;
     procedure SetMap(Key: K; const Value: V); overload;  inline;
     function GetHas(Key: K): boolean; inline;
     function GetHashIndex(Key : K) : Integer; inline;
     function CalcDepth(item: PItem): integer; inline;
-    procedure Remove(const Key : K; const wait : TSpinWait); overload; inline;
+    function Remove(const Key : K; const wait : TSpinWait) : V; overload; inline;
   public
     type
       TDepth = record
@@ -101,8 +107,9 @@ type
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
-    procedure Remove(const Key : K); overload;  inline;
+    function Remove(const Key : K) : V; overload; inline;
     procedure AddOrSetValue(const Key : K; const Value : V);  inline;
+    procedure Add(const Key : K; const Value : V);  inline;
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
     procedure Visit(const visitor : TVisitorProc<K,V>);
@@ -314,9 +321,14 @@ end;
 
 { THash<K, V> }
 
+procedure THash<K, V>.Add(const Key: K; const Value: V);
+begin
+  SetMap(Key, Value, False);
+end;
+
 procedure THash<K, V>.AddOrSetValue(const Key: K; const Value: V);
 begin
-  SetMap(Key, Value);
+  SetMap(Key, Value, True);
 end;
 
 constructor THash<K, V>.Create(EstimatedItemCount : Cardinal = 1024);
@@ -371,7 +383,7 @@ begin
     Result.AvgFilled := Result.Average;
 end;
 
-procedure THash<K, V>.Remove(const Key: K; const wait: TSpinWait);
+function THash<K, V>.Remove(const Key: K; const wait: TSpinWait) : V;
 var
   p, pPrior : PItem;
   iDepth : integer;
@@ -388,18 +400,22 @@ begin
     if not bSuccess then
     begin
       wait.SpinCycle;
-      Remove(Key, wait);
+      Result := Remove(Key, wait);
     end else
+    begin
+      Result := p^.Value;
       Dispose(p);
-  end;
+    end;
+  end else
+    Result := V(nil);
 end;
 
-procedure THash<K, V>.Remove(const Key: K);
+function THash<K, V>.Remove(const Key: K) : V;
 var
   sw : TSpinWait;
 begin
   sw.Reset;
-  Remove(Key, sw);
+  Result := Remove(Key, sw);
 end;
 
 destructor THash<K, V>.Destroy;
@@ -477,7 +493,7 @@ begin
     Current := nil;
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait; AllowOverwrite : boolean);
 var
   p, pNew, pDisp, pPrior : PItem;
   iDepth, idx : Integer;
@@ -507,7 +523,7 @@ begin
       if not bSuccess then
       begin
         wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
+        SetMap(Key,Value, pNew, wait, AllowOverwrite);
       end;
     end else
     begin
@@ -516,23 +532,31 @@ begin
       if not bSuccess then
       begin
         wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
+        SetMap(Key,Value, pNew, wait, AllowOverwrite);
       end else
         if p <> nil then
           Dispose(p);
     end;
   end else
   begin
-    TInterlocked.Exchange<V>(p^.Value,Value);
+    if AllowOverwrite then
+      TInterlocked.Exchange<V>(p^.Value,Value)
+    else
+      raise EKeyExists<K>.Create(Key);
   end;
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; AllowOverwrite: boolean);
 var
   sw : TSpinWait;
 begin
   sw.Reset;
-  SetMap(Key, Value, nil, sw);
+  SetMap(Key, Value, nil, sw, AllowOverwrite);
+end;
+
+procedure THash<K, V>.SetMap(Key: K; const Value: V);
+begin
+  SetMap(Key, Value, True);
 end;
 
 procedure THash<K, V>.Visit(const visitor: TVisitorProc<K,V>);
@@ -555,6 +579,46 @@ begin
       until p = nil
     end;
   end;
+end;
+
+{ EKeyExists<K> }
+
+constructor EKeyExists<K>.Create(Key: K);
+type
+  PObject = ^TObject;
+var
+  sKey : string;
+  pti : PTypeInfo;
+begin
+  pti := TypeInfo(K);
+
+  case pti^.Kind of
+    tkInteger,
+    tkEnumeration:
+      sKey := Integer(PInteger(@Key)^).ToString;
+    tkInt64 :
+      sKey := Int64(PInt64(@Key)^).ToString;
+
+    tkFloat:
+      sKey := Double(PDouble(@Key)^).ToString;
+
+    tkChar,
+    tkString,
+    tkWChar,
+    tkLString,
+    tkWString,
+    tkUString:
+      sKey := String(PString(@Key)^);
+
+    tkClass,
+    tkClassRef :
+      sKey := TObject(PObject(@Key)^).ToString;
+
+    else
+      sKey := '';
+  end;
+
+  inherited Create('Value exists for key '+sKey);
 end;
 
 end.
