@@ -11,10 +11,6 @@ type
   TestTAsync = class(TObject)
   strict private
   public
-    [Setup]
-    procedure Setup;
-    [TearDown]
-    procedure TearDown;
     [Test]
     procedure DoLater;
     [Test]
@@ -57,14 +53,6 @@ begin
   bDo := True;
   Sleep(10);
   Assert.AreEqual(True, bDone);
-end;
-
-procedure TestTAsync.Setup;
-begin
-end;
-
-procedure TestTAsync.TearDown;
-begin
 end;
 
 procedure TestTAsync.AfterDo;

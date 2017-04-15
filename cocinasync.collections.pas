@@ -20,17 +20,21 @@ type
   EQueueSizeException = class(Exception)
   end;
 
+  EKeyExists<K> = class(Exception)
+  public
+    constructor Create(Key : K); reintroduce; virtual;
+  end;
+
   TQueue<T> = class(TObject)
   strict private
     FData : System.TArray<T>;
     FSize : integer;
     FWriteIndex : integer;
     FReadIndex : integer;
-    FWriteIndexMax : integer;
     FReadIndexMax : integer;
     function IndexOf(idx : integer) : integer; inline;
-    function GetItems(idx: integer): T;
-    function GetCount: integer;
+    function GetItems(idx: integer): T;  inline;
+    function GetCount: integer;  inline;
   public
     constructor Create(Size : Integer); reintroduce; virtual;
     destructor Destroy; override;
@@ -52,16 +56,14 @@ type
     end;
   strict private
     FTop : Pointer;
-    FFirst : Pointer;
-    function Pop(const wait : TSpinWait) : T; overload; inline;
+    FDisposeQueue : TQueue<PStackPointer>;
   public
     constructor Create; reintroduce; virtual;
     destructor Destroy; override;
 
     procedure Push(const Value: T); inline;
     function Pop: T; overload; inline;
-    function Peek: T; inline;
-    procedure Clear;
+    procedure Clear; inline;
   end;
 
   TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
@@ -79,18 +81,18 @@ type
     TItemArray = system.TArray<Pointer>;
   strict private
     FMemSize: Cardinal;
-    FSizeMask : Cardinal;
     FItems: TItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
-    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer);
-    function GetMap(Key: K): V;
-    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait); overload; //inline;
-    procedure SetMap(Key: K; const Value: V); overload;
-    function GetHas(Key: K): boolean;
-    function GetHashIndex(Key : K) : Integer; //inline;
-    function CalcDepth(item: PItem): integer; //inline;
-    procedure Remove(const Key : K; const wait : TSpinWait); overload;
+    procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer); inline;
+    function GetMap(Key: K): V;  inline;
+    procedure SetMap(Key: K; const Value: V; NewItem : PItem; const wait : TSpinWait; AllowOverwrite : boolean); overload; inline;
+    procedure SetMap(Key: K; const Value: V; AllowOverwrite : boolean); overload;  inline;
+    procedure SetMap(Key: K; const Value: V); overload;  inline;
+    function GetHas(Key: K): boolean; inline;
+    function GetHashIndex(Key : K) : Integer; inline;
+    function CalcDepth(item: PItem): integer; inline;
+    function Remove(const Key : K; const wait : TSpinWait) : V; overload; inline;
   public
     type
       TDepth = record
@@ -101,12 +103,13 @@ type
         Size : Cardinal;
       end;
   public
-    constructor Create(EstimatedItemCount : Integer = 1024); reintroduce; virtual;
+    constructor Create(EstimatedItemCount : Cardinal = 1024); reintroduce; virtual;
     destructor Destroy; override;
 
     function DebugDepth : TDepth;
-    procedure Remove(const Key : K); overload;
-    procedure AddOrSetValue(const Key : K; const Value : V);
+    function Remove(const Key : K) : V; overload; inline;
+    procedure AddOrSetValue(const Key : K; const Value : V);  inline;
+    procedure Add(const Key : K; const Value : V);  inline;
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
     procedure Visit(const visitor : TVisitorProc<K,V>);
@@ -220,7 +223,7 @@ end;
 
 function TQueue<T>.GetCount : integer;
 begin
-  Result := FWriteIndexMax - FReadIndexMax;
+  Result := FReadIndexMax - FReadIndex;
 end;
 
 function TQueue<T>.IndexOf(idx: integer): integer;
@@ -231,101 +234,104 @@ end;
 { TStack<T> }
 
 procedure TStack<T>.Clear;
-var
-  val : T;
-  bAssigned : boolean;
 begin
-  while FTop <> FFirst do
+  while FTop <> nil do
     Pop;
 end;
 
 constructor TStack<T>.Create;
-var
-  p : PStackPointer;
 begin
   inherited Create;
-  New(p);
-  p^.FData := T(nil);
-  p^.FPrior := nil;
-  FFirst := p;
-  FTop := p;
+  FTop := nil;
+  FDisposeQueue := TQueue<PStackPointer>.Create(256);
 end;
 
 destructor TStack<T>.Destroy;
+var
+  p : PStackPointer;
 begin
   Clear;
-  Dispose(PStackPointer(FFirst));
+  repeat
+    p := FDisposeQueue.Dequeue;
+    if p <> nil then
+      Dispose(p);
+  until p = nil;
+  FDisposeQueue.Free;
   inherited;
-end;
-
-function TStack<T>.Peek: T;
-begin
-  if FTop <> nil then
-  begin
-    Result := PStackPointer(FTop)^.FData;
-  end else
-    Result := T(nil);
-end;
-
-function TStack<T>.Pop(const wait : TSpinWait): T;
-var
-  p, pTop : PStackPointer;
-  iCnt : integer;
-  bSucceeded : boolean;
-begin
-  pTop := FTop;
-  if (pTop <> nil) and (pTop <> FFirst) then
-  begin
-    p := PStackPointer(TInterlocked.CompareExchange(FTop,PStackPointer(pTop)^.FPrior, pTop,bSucceeded));
-    if bSucceeded then
-    begin
-      Result := p^.FData;
-      Dispose(PStackPointer(pTop));
-    end else
-    begin
-      wait.SpinCycle;
-      Result := Pop(wait);
-    end;
-  end else
-    Result := T(nil);
 end;
 
 function TStack<T>.Pop: T;
 var
-  sw : TSpinWait;
+  p : PStackPointer;
+  bSuccess : boolean;
+  wait : TSpinWait;
 begin
-  sw.Reset;
-  Result := Pop(sw);
+  wait.Reset;
+
+  if FTop = nil then
+    exit(T(nil));
+
+  repeat
+    p := FTop;
+    if p <> nil then
+      TInterlocked.CompareExchange(FTop,p^.FPrior, p, bSuccess)
+    else
+      exit(T(nil));
+    if not bSuccess then
+      wait.SpinCycle;
+  until bSuccess;
+
+  Result := p^.FData;
+
+  FDisposeQueue.Enqueue(p);
+  if FDisposeQueue.Count > 192 then
+  begin
+    while FDisposeQueue.Count > 128 do
+    begin
+      p := FDisposeQueue.Dequeue;
+      if p <> nil then
+        Dispose(p);
+    end;
+  end;
 end;
 
 procedure TStack<T>.Push(const Value: T);
 var
-  ptop, p : PStackPointer;
+  pNew : PStackPointer;
+  wait : TSpinWait;
   bSuccess : boolean;
-  sw : TSpinWait;
 begin
-  New(p);
-  p^.FData := Value;
-  bSuccess := False;
-  sw.Reset;
+  wait.Reset;
+  if FDisposeQueue.Count > 64 then
+    pNew := FDisposeQueue.Dequeue
+  else
+    New(pNew);
+  pNew^.FData := Value;
   repeat
-    p.FPrior := FTop;
-    TInterlocked.CompareExchange(FTop, p, p^.FPrior, bSuccess);
+    pNew^.FPrior := FTop;
+    TInterlocked.CompareExchange(FTop,pNew, pNew^.FPrior,bSuccess);
     if not bSuccess then
     begin
-      sw.SpinCycle;
+      wait.SpinCycle;
     end;
   until bSuccess;
 end;
 
+
+
 { THash<K, V> }
+
+procedure THash<K, V>.Add(const Key: K; const Value: V);
+begin
+  SetMap(Key, Value, False);
+end;
 
 procedure THash<K, V>.AddOrSetValue(const Key: K; const Value: V);
 begin
-  SetMap(Key, Value);
+  SetMap(Key, Value, True);
 end;
 
-constructor THash<K, V>.Create(EstimatedItemCount : Integer = 1024);
+constructor THash<K, V>.Create(EstimatedItemCount : Cardinal = 1024);
 var
   i: Integer;
 begin
@@ -377,7 +383,7 @@ begin
     Result.AvgFilled := Result.Average;
 end;
 
-procedure THash<K, V>.Remove(const Key: K; const wait: TSpinWait);
+function THash<K, V>.Remove(const Key: K; const wait: TSpinWait) : V;
 var
   p, pPrior : PItem;
   iDepth : integer;
@@ -394,18 +400,22 @@ begin
     if not bSuccess then
     begin
       wait.SpinCycle;
-      Remove(Key, wait);
+      Result := Remove(Key, wait);
     end else
+    begin
+      Result := p^.Value;
       Dispose(p);
-  end;
+    end;
+  end else
+    Result := V(nil);
 end;
 
-procedure THash<K, V>.Remove(const Key: K);
+function THash<K, V>.Remove(const Key: K) : V;
 var
   sw : TSpinWait;
 begin
   sw.Reset;
-  Remove(Key, sw);
+  Result := Remove(Key, sw);
 end;
 
 destructor THash<K, V>.Destroy;
@@ -483,7 +493,7 @@ begin
     Current := nil;
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; NewItem: PItem; const wait : TSpinWait; AllowOverwrite : boolean);
 var
   p, pNew, pDisp, pPrior : PItem;
   iDepth, idx : Integer;
@@ -513,7 +523,7 @@ begin
       if not bSuccess then
       begin
         wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
+        SetMap(Key,Value, pNew, wait, AllowOverwrite);
       end;
     end else
     begin
@@ -522,23 +532,31 @@ begin
       if not bSuccess then
       begin
         wait.SpinCycle;
-        SetMap(Key,Value, pNew, wait);
+        SetMap(Key,Value, pNew, wait, AllowOverwrite);
       end else
         if p <> nil then
           Dispose(p);
     end;
   end else
   begin
-    TInterlocked.Exchange<V>(p^.Value,Value);
+    if AllowOverwrite then
+      TInterlocked.Exchange<V>(p^.Value,Value)
+    else
+      raise EKeyExists<K>.Create(Key);
   end;
 end;
 
-procedure THash<K, V>.SetMap(Key: K; const Value: V);
+procedure THash<K, V>.SetMap(Key: K; const Value: V; AllowOverwrite: boolean);
 var
   sw : TSpinWait;
 begin
   sw.Reset;
-  SetMap(Key, Value, nil, sw);
+  SetMap(Key, Value, nil, sw, AllowOverwrite);
+end;
+
+procedure THash<K, V>.SetMap(Key: K; const Value: V);
+begin
+  SetMap(Key, Value, True);
 end;
 
 procedure THash<K, V>.Visit(const visitor: TVisitorProc<K,V>);
@@ -561,6 +579,46 @@ begin
       until p = nil
     end;
   end;
+end;
+
+{ EKeyExists<K> }
+
+constructor EKeyExists<K>.Create(Key: K);
+type
+  PObject = ^TObject;
+var
+  sKey : string;
+  pti : PTypeInfo;
+begin
+  pti := TypeInfo(K);
+
+  case pti^.Kind of
+    tkInteger,
+    tkEnumeration:
+      sKey := Integer(PInteger(@Key)^).ToString;
+    tkInt64 :
+      sKey := Int64(PInt64(@Key)^).ToString;
+
+    tkFloat:
+      sKey := Double(PDouble(@Key)^).ToString;
+
+    tkChar,
+    tkString,
+    tkWChar,
+    tkLString,
+    tkWString,
+    tkUString:
+      sKey := String(PString(@Key)^);
+
+    tkClass,
+    tkClassRef :
+      sKey := TObject(PObject(@Key)^).ToString;
+
+    else
+      sKey := '';
+  end;
+
+  inherited Create('Value exists for key '+sKey);
 end;
 
 end.
