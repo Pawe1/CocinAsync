@@ -40,7 +40,7 @@ implementation
 
 uses DateUtils;
 
-{ TCocinAsync }
+{ TThreadCounter }
 
 constructor TThreadCounter.Create;
 begin
@@ -88,7 +88,10 @@ begin
         (  (Timeout = 0) or
            ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) >= Timeout))
         ) do
+  begin
     sleep(10);
+    CheckSynchronize;
+  end;
 end;
 
 { TConsoleSync }
