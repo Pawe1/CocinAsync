@@ -90,7 +90,8 @@ begin
         ) do
   begin
     sleep(10);
-    CheckSynchronize;
+    if TThread.Current.ThreadID = MainThreadID then
+      CheckSynchronize;
   end;
 end;
 
