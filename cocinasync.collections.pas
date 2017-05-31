@@ -351,10 +351,10 @@ end;
 function THash<K, V>.CalcDepth(item : PItem) : integer;
 begin
   Result := 1;
-  while (item <> nil) and (item.Next <> nil) do
+  while (item <> nil) and (item^.Next <> nil) do
   begin
     inc(Result);
-    item := item.Next;
+    item := item^.Next;
   end;
 end;
 
@@ -493,7 +493,7 @@ begin
     begin
       repeat
         Prior := p;
-        p := p.Next;
+        p := p^.Next;
         inc(Depth);
       until (p = nil) or FComparer.Equals(p.Key, Key);
 
@@ -523,16 +523,18 @@ begin
     if NewItem = nil then
     begin
       New(pNew);
-      pNew.Key := Key;
-      pNew.Value := Value;
+      pNew^.Key := Key;
+      pNew^.Value := Value;
+      pNew^.Visiting := 0;
+      pNew^.Removed := 0;
     end else
       pNew := NewItem;
-    pNew.Next := nil;
+    pNew^.Next := nil;
 
     if iDepth > 0 then
     begin
       // Slot occupied but key not found
-      pNew.Next := p;
+      pNew^.Next := p;
       TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
       if not bSuccess then
       begin
@@ -583,20 +585,20 @@ var
 begin
   lst := TList<PItem>.Create;
   try
-  for i := low(FItems) to High(FItems) do
-  begin
-    p := FItems[i];
-    if p <> nil then
+    for i := low(FItems) to High(FItems) do
     begin
-      repeat
-        del := False;
+      p := FItems[i];
+      if p <> nil then
+      begin
+        repeat
+          del := False;
           TInterlocked.Increment(p^.Visiting);
           try
             sw.Reset;
             while p^.Visiting <> 1 do
               sw.SpinCycle;
-        visitor(p^.Key, p^.Value, del);
-        if del then
+            visitor(p^.Key, p^.Value, del);
+            if del then
             begin
               TInterlocked.Increment(p^.Removed);
               lst.Add(p);
@@ -604,10 +606,10 @@ begin
           finally
             TInterlocked.Decrement(p^.Visiting);
           end;
-        p := p^.Next;
-      until p = nil
+          p := p^.Next;
+        until p = nil
+      end;
     end;
-  end;
     for i := 0 to lst.Count-1 do
     begin
       Remove(lst[i]^.Key);
