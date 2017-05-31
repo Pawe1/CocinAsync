@@ -77,6 +77,8 @@ type
       Key: K;
       Value: V;
       Next: Pointer;
+      Visiting : integer;
+      Removed : integer;
     end;
     TItemArray = system.TArray<Pointer>;
   strict private
@@ -117,7 +119,7 @@ type
 
 implementation
 
-uses Math;
+uses Math, System.Generics.Collections;
 
 { TInterlockedHelper }
 
@@ -457,11 +459,23 @@ function THash<K, V>.GetMap(Key: K): V;
 var
   p, pPrior : PItem;
   iDepth : integer;
+  sw : TSpinWait;
 begin
   GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
   if p <> nil then
   begin
-    Result := p.Value;
+    TInterlocked.Increment(p^.Visiting);
+    try
+      sw.Reset;
+      while p^.Visiting <> 1 do
+        sw.SpinCycle;
+      if p^.Removed = 0 then
+        Result := p^.Value
+      else
+        Result := V(nil);
+    finally
+      TInterlocked.Decrement(p^.Visiting);
+    end;
   end else
     Result := V(nil);
 end;
@@ -564,7 +578,11 @@ var
   p : PItem;
   del : boolean;
   i : integer;
+  sw : TSpinWait;
+  lst : TList<PItem>;
 begin
+  lst := TList<PItem>.Create;
+  try
   for i := low(FItems) to High(FItems) do
   begin
     p := FItems[i];
@@ -572,12 +590,30 @@ begin
     begin
       repeat
         del := False;
+          TInterlocked.Increment(p^.Visiting);
+          try
+            sw.Reset;
+            while p^.Visiting <> 1 do
+              sw.SpinCycle;
         visitor(p^.Key, p^.Value, del);
         if del then
-          Remove(p^.Key);
+            begin
+              TInterlocked.Increment(p^.Removed);
+              lst.Add(p);
+            end;
+          finally
+            TInterlocked.Decrement(p^.Visiting);
+          end;
         p := p^.Next;
       until p = nil
     end;
+  end;
+    for i := 0 to lst.Count-1 do
+    begin
+      Remove(lst[i]^.Key);
+    end;
+  finally
+    lst.Free;
   end;
 end;
 
