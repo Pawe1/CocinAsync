@@ -443,14 +443,15 @@ end;
 
 function THash<K, V>.GetHas(Key: K): boolean;
 var
-  val : V;
+  p, pPrior: PItem;
+  iDepth: integer;
 begin
-  val := GetMap(Key);
-  Result := @val <> nil;
+  GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
+  Result := p <> nil;
 end;
 
 function THash<K, V>.GetHashIndex(Key: K): Integer;
-const Mask = not Integer($80000000);
+  const Mask = not Integer($80000000);
 begin
   result := (Mask and ((Mask and FComparer.GetHashCode(Key)) + 1)) and (FMemSize);
 end;
