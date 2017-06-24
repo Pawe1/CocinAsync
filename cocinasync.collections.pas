@@ -460,16 +460,12 @@ function THash<K, V>.GetMap(Key: K): V;
 var
   p, pPrior : PItem;
   iDepth : integer;
-  sw : TSpinWait;
 begin
   GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
   if p <> nil then
   begin
     TInterlocked.Increment(p^.Visiting);
     try
-      sw.Reset;
-      while p^.Visiting <> 1 do
-        sw.SpinCycle;
       if p^.Removed = 0 then
         Result := p^.Value
       else
@@ -581,6 +577,7 @@ var
   p : PItem;
   del : boolean;
   i : integer;
+  sw : TSpinWait;
   lst : TList<PItem>;
 begin
   lst := TList<PItem>.Create;
@@ -599,6 +596,9 @@ begin
             begin
               TInterlocked.Increment(p^.Removed);
               lst.Add(p);
+              sw.Reset;
+              while p^.Visiting <> 1 do
+                sw.SpinCycle;
             end;
           finally
             TInterlocked.Decrement(p^.Visiting);
