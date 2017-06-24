@@ -581,7 +581,6 @@ var
   p : PItem;
   del : boolean;
   i : integer;
-  sw : TSpinWait;
   lst : TList<PItem>;
 begin
   lst := TList<PItem>.Create;
@@ -595,9 +594,6 @@ begin
           del := False;
           TInterlocked.Increment(p^.Visiting);
           try
-            sw.Reset;
-            while p^.Visiting <> 1 do
-              sw.SpinCycle;
             visitor(p^.Key, p^.Value, del);
             if del then
             begin

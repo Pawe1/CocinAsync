@@ -42,7 +42,8 @@ begin
     procedure
     begin
       bDone := True;
-    end
+    end,
+    1000,nil,False,False
   );
   Sleep(10);
   if bDone then
@@ -51,7 +52,7 @@ begin
     exit;
   end;
   bDo := True;
-  Sleep(10);
+  Sleep(100);
   Assert.AreEqual(True, bDone);
 end;
 
