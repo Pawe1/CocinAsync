@@ -447,7 +447,7 @@ var
   iDepth: integer;
 begin
   GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
-  Result := p <> nil;
+  Result := (p <> nil) and (p^.Removed = 0);
 end;
 
 function THash<K, V>.GetHashIndex(Key: K): Integer;
