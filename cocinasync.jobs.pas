@@ -174,7 +174,7 @@ begin
   dtStart := Now;
   while ((FJobs.Count > 0) or (FJobsInProcess > 0)) and
         (  (Timeout = 0) or
-           ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) >= Timeout))
+           ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) <= Timeout))
         ) do
     sleep(10);
 end;
