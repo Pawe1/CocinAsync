@@ -19,22 +19,22 @@ type
     [Test]
     procedure EarlyFree;
     [Test]
-    [TestCase('TestA','1')]
-    [TestCase('TestB','2')]
-    [TestCase('TestC','3')]
-    [TestCase('TestD','4')]
-    [TestCase('TestD','5')]
-    [TestCase('TestD','6')]
-    [TestCase('TestD','7')]
-    [TestCase('TestD','8')]
-    [TestCase('TestD','9')]
-    [TestCase('TestD','10')]
-    [TestCase('TestD','11')]
-    [TestCase('TestD','12')]
-    [TestCase('TestD','13')]
-    [TestCase('TestD','14')]
-    [TestCase('TestD','15')]
-    [TestCase('TestD','16')]
+    [TestCase('QueueAnonymousMethodAndWait-1','1')]
+    [TestCase('QueueAnonymousMethodAndWait-2','2')]
+    [TestCase('QueueAnonymousMethodAndWait-3','3')]
+    [TestCase('QueueAnonymousMethodAndWait-4','4')]
+    [TestCase('QueueAnonymousMethodAndWait-5','5')]
+    [TestCase('QueueAnonymousMethodAndWait-6','6')]
+    [TestCase('QueueAnonymousMethodAndWait-7','7')]
+    [TestCase('QueueAnonymousMethodAndWait-8','8')]
+    [TestCase('QueueAnonymousMethodAndWait-9','9')]
+    [TestCase('QueueAnonymousMethodAndWait-10','10')]
+    [TestCase('QueueAnonymousMethodAndWait-11','11')]
+    [TestCase('QueueAnonymousMethodAndWait-12','12')]
+    [TestCase('QueueAnonymousMethodAndWait-13','13')]
+    [TestCase('QueueAnonymousMethodAndWait-14','14')]
+    [TestCase('QueueAnonymousMethodAndWait-15','15')]
+    [TestCase('QueueAnonymousMethodAndWait-16','16')]
     procedure QueueAnonymousMethodAndWait(HowMany : Integer);
     // Test with TestCase Atribute to supply parameters.
   end;
@@ -81,11 +81,14 @@ var
   dtStart : TDateTime;
   iMS : Cardinal;
   i : integer;
+  iWait : integer;
 begin
   if HowMany > CPUCount then
   begin
     Assert.Pass('Skipped Test Due to Test more than CPU Count');
   end;
+  iWait := 1010+ (HowMany div CPUCount);
+
   dtStart := Now;
   for i := 1 to HowMany do
     FJobs.Queue(
@@ -94,12 +97,12 @@ begin
         Sleep(1000);
       end
     );
-  FJobs.WaitForAll(10000);
+  FJobs.WaitForAll(iWait);
   iMS := MilliSecondsBetween(dtStart, Now);
-  if iMS < 10 then
+  if iMS <= iWait then
     Assert.Pass('Time: '+iMS.ToString)
   else
-    Assert.Fail('Unexpected Wait: '+iMS.ToString);
+    Assert.Fail('Unexpected Wait: '+iMS.ToString+' allowed '+(iWait).ToString);
 end;
 
 initialization
