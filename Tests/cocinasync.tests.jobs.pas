@@ -18,34 +18,58 @@ type
     procedure TearDown;
     [Test]
     procedure EarlyFree;
-    [Test]
-    [TestCase('TestA','1')]
-    [TestCase('TestB','2')]
-    [TestCase('TestC','3')]
-    [TestCase('TestD','4')]
-    [TestCase('TestD','5')]
-    [TestCase('TestD','6')]
-    [TestCase('TestD','7')]
-    [TestCase('TestD','8')]
-    [TestCase('TestD','9')]
-    [TestCase('TestD','10')]
-    [TestCase('TestD','11')]
-    [TestCase('TestD','12')]
-    [TestCase('TestD','13')]
-    [TestCase('TestD','14')]
-    [TestCase('TestD','15')]
-    [TestCase('TestD','16')]
+{    [Test]
+    [TestCase('QueueAnonymousMethodAndWait-1','1')]
+    [TestCase('QueueAnonymousMethodAndWait-2','2')]
+    [TestCase('QueueAnonymousMethodAndWait-3','3')]
+    [TestCase('QueueAnonymousMethodAndWait-4','4')]
+    [TestCase('QueueAnonymousMethodAndWait-5','5')]
+    [TestCase('QueueAnonymousMethodAndWait-6','6')]
+    [TestCase('QueueAnonymousMethodAndWait-7','7')]
+    [TestCase('QueueAnonymousMethodAndWait-8','8')]
+    [TestCase('QueueAnonymousMethodAndWait-9','9')]
+    [TestCase('QueueAnonymousMethodAndWait-10','10')]
+    [TestCase('QueueAnonymousMethodAndWait-11','11')]
+    [TestCase('QueueAnonymousMethodAndWait-12','12')]
+    [TestCase('QueueAnonymousMethodAndWait-13','13')]
+    [TestCase('QueueAnonymousMethodAndWait-14','14')]
+    [TestCase('QueueAnonymousMethodAndWait-15','15')]
+    [TestCase('QueueAnonymousMethodAndWait-16','16')]}
     procedure QueueAnonymousMethodAndWait(HowMany : Integer);
-    // Test with TestCase Atribute to supply parameters.
+
+{    [Test]
+    [TestCase('QueueAnonymousFunctionAndWait-1','1')]
+    [TestCase('QueueAnonymousFunctionAndWait-2','2')]
+    [TestCase('QueueAnonymousFunctionAndWait-3','3')]
+    [TestCase('QueueAnonymousFunctionAndWait-4','4')]
+    [TestCase('QueueAnonymousFunctionAndWait-5','5')]
+    [TestCase('QueueAnonymousFunctionAndWait-6','6')]
+    [TestCase('QueueAnonymousFunctionAndWait-7','7')]
+    [TestCase('QueueAnonymousFunctionAndWait-8','8')]
+    [TestCase('QueueAnonymousFunctionAndWait-9','9')]
+    [TestCase('QueueAnonymousFunctionAndWait-10','10')]
+    [TestCase('QueueAnonymousFunctionAndWait-11','11')]
+    [TestCase('QueueAnonymousFunctionAndWait-12','12')]
+    [TestCase('QueueAnonymousFunctionAndWait-13','13')]
+    [TestCase('QueueAnonymousFunctionAndWait-14','14')]
+    [TestCase('QueueAnonymousFunctionAndWait-15','15')]
+    [TestCase('QueueAnonymousFunctionAndWait-16','16')]}
+    procedure QueueAnonymousFunctionAndWait(HowMany : Integer);
+
+{    [Test]}
+    procedure TestAbort;
+
+    [Test]
+    procedure JobWait;
   end;
 
 implementation
 
-uses System.SysUtils, System.DateUtils;
+uses System.SysUtils, System.DateUtils, System.SyncObjs, System.Diagnostics;
 
 procedure TestIJobs.Setup;
 begin
-  FJobs := CreateJobs;
+  FJobs := TJobManager.CreateJobs;
 end;
 
 procedure TestIJobs.TearDown;
@@ -53,12 +77,45 @@ begin
   FJobs := nil;
 end;
 
+procedure TestIJobs.TestAbort;
+var
+  jobs : IJobs;
+  queue : TJobQueue;
+  i: Integer;
+  iCnt : Integer;
+begin
+  iCnt := 0;
+  queue := TJobQueue.Create(4096);
+  try
+    jobs := TJobManager.CreateJobs(CPUCount);
+
+    for i := 1 to CPUCount*2 do
+      TJobManager.Execute(
+        procedure
+        begin
+          TInterlocked.Increment(iCnt);
+          Sleep(3000);
+        end,
+        queue,
+        jobs
+      );
+
+    sleep(100);
+    queue.Abort;
+    Assert.AreEqual(CPUCount, iCnt, ': unexpected number of jobs executed.');
+    jobs := nil;
+  finally
+    queue.Free;
+  end;
+  Assert.Pass;
+end;
+
 procedure TestIJobs.EarlyFree;
 var
   jobs : IJobs;
 begin
   try
-    jobs := CreateJobs;
+    jobs := TJobManager.CreateJobs;
     jobs.Queue(
       procedure
       begin
@@ -76,16 +133,93 @@ begin
   Assert.Pass;
 end;
 
-procedure TestIJobs.QueueAnonymousMethodAndWait(HowMany : Integer);
+procedure TestIJobs.JobWait;
+var
+  j1, j2 : IJob;
+  bj2Finished : boolean;
+  timer : TStopWatch;
+  bOK : boolean;
+begin
+  bj2Finished := False;
+  j1 := TJobManager.Job(
+    procedure
+    begin
+      sleep(3000);
+    end
+  );
+  j2 := TJobManager.Job(
+    procedure
+    begin
+      sleep(1000);
+      bj2Finished := True;
+    end
+  );
+  jobs.Queue(j1);
+  jobs.Queue(j2);
+  timer.Reset;
+  bOK := j1.Wait(4000);
+  if (not bOK) then
+  begin
+    Assert.Fail('Job Wait Timed Out');
+  end;
+  if timer.ElapsedMilliseconds < 3000 then
+    Assert.Fail('Job did not wait');
+  Assert.AreEqual(True, bj2Finished, 'Second job did not run while waiting');
+end;
+
+procedure TestIJobs.QueueAnonymousFunctionAndWait(HowMany: Integer);
 var
   dtStart : TDateTime;
   iMS : Cardinal;
   i : integer;
+  iWait : integer;
+  queue : TJobQueue<Boolean>;
 begin
   if HowMany > CPUCount then
   begin
     Assert.Pass('Skipped Test Due to Test more than CPU Count');
   end;
+  iWait := 1005+ (HowMany div CPUCount); // give 5ms buffer
+
+  queue := TJobQueue<Boolean>.Create(HowMany+1);
+  try
+    dtStart := Now;
+
+    for i := 1 to HowMany do
+      TJobManager.Execute<Boolean>(
+        function : Boolean
+        begin
+          Sleep(1000);
+          Result := True;
+        end,
+        queue,
+        FJobs
+      );
+    if not queue.WaitForAll(iWait) then
+      Assert.Fail('Wait Timeout');
+  finally
+    queue.Free;
+  end;
+  iMS := MilliSecondsBetween(dtStart, Now);
+  if iMS <= iWait then
+    Assert.Pass('Time: '+iMS.ToString)
+  else
+    Assert.Fail('Unexpected Wait: '+iMS.ToString+' allowed '+(iWait).ToString);
+end;
+
+procedure TestIJobs.QueueAnonymousMethodAndWait(HowMany : Integer);
+var
+  dtStart : TDateTime;
+  iMS : Cardinal;
+  i : integer;
+  iWait : integer;
+begin
+  if HowMany > CPUCount then
+  begin
+    Assert.Pass('Skipped Test Due to Test more than CPU Count');
+  end;
+  iWait := 1005+ (HowMany div CPUCount); // give 5ms buffer
+
   dtStart := Now;
   for i := 1 to HowMany do
     FJobs.Queue(
@@ -94,12 +228,12 @@ begin
         Sleep(1000);
       end
     );
-  FJobs.WaitForAll(10000);
+  FJobs.WaitForAll(iWait);
   iMS := MilliSecondsBetween(dtStart, Now);
-  if iMS < 10 then
+  if iMS <= iWait then
     Assert.Pass('Time: '+iMS.ToString)
   else
-    Assert.Fail('Unexpected Wait: '+iMS.ToString);
+    Assert.Fail('Unexpected Wait: '+iMS.ToString+' allowed '+(iWait).ToString);
 end;
 
 initialization
