@@ -2,7 +2,7 @@ unit cocinasync.async;
 
 interface
 
-uses System.SysUtils, System.Classes, cocinasync.global;
+uses System.SysUtils, System.Classes, cocinasync.global, System.SyncObjs;
 
 type
   IMREWSync = interface
@@ -16,10 +16,18 @@ type
   strict private
     FCounter : TThreadCounter;
     FTerminating : boolean;
+  strict private
+    class var FSynchronizeInMainThread : boolean;
+    class var FSync : TCriticalSection;
   public
     class function CreateMREWSync : IMREWSync;
     class procedure SynchronizeIfInThread(const proc : TProc);
     class procedure QueueIfInThread(const proc : TProc);
+    class property SynchronizeInMainThread : boolean read FSynchronizeInMainThread write FSynchronizeInMainThread;
+
+    class constructor Create;
+    class destructor Destroy;
+
 
     procedure AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true);
     procedure DoLater(const &Do : TProc; SynchronizedDo : boolean = true);
@@ -44,7 +52,7 @@ var
 
 implementation
 
-uses System.Threading, System.SyncObjs {$IFDEF USEOURMWERS}, WinAPI.Windows {$ENDIF};
+uses System.Threading {$IFDEF USEOURMWERS}, WinAPI.Windows {$ENDIF};
 
 type
   // NOTE: The intention here was to provide a faster MREWSync. Unfortunately
@@ -156,6 +164,12 @@ begin
   FTerminating := False;
 end;
 
+class constructor TAsync.Create;
+begin
+  FSynchronizeInMainThread := True;
+  FSync := TCriticalSection.Create;
+end;
+
 class function TAsync.CreateMREWSync : IMREWSync;
 begin
   Result := TFastMREWSync.Create;
@@ -164,30 +178,52 @@ end;
 
 class procedure TAsync.SynchronizeIfInThread(const proc : TProc);
 begin
-  if TThread.Current.ThreadID <> MainThreadID then
+  if FSynchronizeInMainThread then
   begin
-    TThread.Synchronize(TThread.Current,
-      procedure
-      begin
-        proc();
-      end
-    );
+    if TThread.Current.ThreadID <> MainThreadID then
+    begin
+      TThread.Synchronize(TThread.Current,
+        procedure
+        begin
+          proc();
+        end
+      );
+    end else
+      proc();
   end else
-    proc();
+  begin
+    FSync.Enter;
+    try
+      proc();
+    finally
+      FSync.Leave;
+    end;
+  end
 end;
 
 class procedure TAsync.QueueIfInThread(const proc : TProc);
 begin
-  if TThread.Current.ThreadID <> MainThreadID then
+  if FSynchronizeInMainThread then
   begin
-    TThread.Queue(TThread.Current,
-      procedure
-      begin
-        proc();
-      end
-    );
+    if TThread.Current.ThreadID <> MainThreadID then
+    begin
+      TThread.Queue(TThread.Current,
+        procedure
+        begin
+          proc();
+        end
+      );
+    end else
+      proc();
   end else
-    proc();
+  begin
+    FSync.Enter;
+    try
+      proc();
+    finally
+      FSync.Leave;
+    end;
+  end
 end;
 
 type
@@ -199,6 +235,11 @@ begin
   FCounter.WaitForAll;
   FCounter.Free;
   inherited;
+end;
+
+class destructor TAsync.Destroy;
+begin
+  FSync.Free;
 end;
 
 function TAsync.DoEvery(const MS : Cardinal; const &Do : TFunc<Boolean>; SynchronizedDo : boolean = true) : TThread;
