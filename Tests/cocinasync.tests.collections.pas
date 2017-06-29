@@ -23,6 +23,9 @@ type
     procedure TestStackThreads(ThreadCount, ItemsCount, Delay : Integer);
 
     [Test]
+    procedure TestHashRemove;
+
+    [Test]
     procedure TestHash;
 
     [Test]
@@ -123,6 +126,27 @@ begin
   end;
 
   Assert.Pass;
+end;
+
+procedure TestCollections.TestHashRemove;
+var
+  h : THash<string, string>;
+begin
+  h := THash<string, string>.Create;
+  try
+    h['first'] := 'jason';
+    h['last'] := 'smith';
+    h.Remove('first');
+    h.Remove('last');
+    if h.Has['first'] then
+      Assert.Fail('has first after removal');
+    if h.Has['last'] then
+      Assert.Fail('has last after removal');
+    Assert.AreEqual(h['first'],'','first is not nil');
+    Assert.AreEqual(h['last'],'','last is not nil');
+  finally
+    h.Free;
+  end;
 end;
 
 procedure TestCollections.TestHashThreads(ThreadCount, ItemsCount, Delay: Integer);
