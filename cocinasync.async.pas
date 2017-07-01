@@ -2,7 +2,8 @@ unit cocinasync.async;
 
 interface
 
-uses System.SysUtils, System.Classes, cocinasync.global, System.SyncObjs;
+uses System.SysUtils, System.Classes, cocinasync.global, cocinasync.jobs,
+  System.SyncObjs;
 
 type
   IMREWSync = interface
@@ -29,9 +30,9 @@ type
     class destructor Destroy;
 
 
-    procedure AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true);
-    procedure DoLater(const &Do : TProc; SynchronizedDo : boolean = true);
-    procedure OnDo(const &On : TFunc<Boolean>; const &Do : TProc; CheckInterval : integer = 1000; &Repeat : TFunc<boolean> = nil; SynchronizedOn : boolean = false; SynchronizedDo : boolean = true);
+    procedure AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
+    procedure DoLater(const &Do : TProc; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
+    procedure OnDo(const &On : TFunc<Boolean>; const &Do : TProc; CheckInterval : integer = 1000; &Repeat : TFunc<boolean> = nil; SynchronizedOn : boolean = false; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
     function DoEvery(const MS : Cardinal; const &Do : TFunc<Boolean>; SynchronizedDo : boolean = true) : TThread;
 
     constructor Create; reintroduce; virtual;
@@ -52,7 +53,7 @@ var
 
 implementation
 
-uses System.Threading {$IFDEF USEOURMWERS}, WinAPI.Windows {$ENDIF};
+{$IFDEF USEOURMWERS}uses WinAPI.Windows; {$ENDIF}
 
 type
   // NOTE: The intention here was to provide a faster MREWSync. Unfortunately
@@ -278,9 +279,9 @@ begin
   Result.Start;
 end;
 
-procedure TAsync.AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true);
+procedure TAsync.AfterDo(const After : Cardinal; const &Do : TProc; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
 begin
-  TThread.CreateAnonymousThread(
+  TJobManager.Execute(
     procedure
     begin
       if FTerminating then
@@ -300,13 +301,14 @@ begin
       finally
         FCounter.NotifyThreadEnd;
       end;
-    end
-  ).Start;
+    end,
+    JobsOverride
+  );
 end;
 
-procedure TAsync.DoLater(const &Do : TProc; SynchronizedDo : boolean = true);
+procedure TAsync.DoLater(const &Do : TProc; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
 begin
-  TThread.CreateAnonymousThread(
+  TJobManager.Execute(
     procedure
     begin
       if FTerminating then
@@ -325,11 +327,12 @@ begin
       finally
         FCounter.NotifyThreadEnd;
       end;
-    end
-  ).Start;
+    end,
+    JobsOverride
+  );
 end;
 
-procedure TAsync.OnDo(const &On : TFunc<Boolean>; const &Do : TProc; CheckInterval : integer = 1000; &Repeat : TFunc<boolean> = nil; SynchronizedOn : boolean = false; SynchronizedDo : boolean = true);
+procedure TAsync.OnDo(const &On : TFunc<Boolean>; const &Do : TProc; CheckInterval : integer = 1000; &Repeat : TFunc<boolean> = nil; SynchronizedOn : boolean = false; SynchronizedDo : boolean = true; const JobsOverride : IJobs = nil);
 begin
   if not Assigned(&Repeat) then
     &Repeat :=
@@ -338,7 +341,7 @@ begin
         Result := False;
       end;
 
-  TThread.CreateAnonymousThread(
+  TJobManager.Execute(
     procedure
     var
       bOn : Boolean;
@@ -380,8 +383,9 @@ begin
       finally
         FCounter.NotifyThreadEnd;
       end;
-    end
-  ).Start;
+    end,
+    JobsOverride
+  );
 end;
 
 initialization

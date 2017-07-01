@@ -18,7 +18,7 @@ type
     procedure TearDown;
     [Test]
     procedure EarlyFree;
-{    [Test]
+    [Test]
     [TestCase('QueueAnonymousMethodAndWait-1','1')]
     [TestCase('QueueAnonymousMethodAndWait-2','2')]
     [TestCase('QueueAnonymousMethodAndWait-3','3')]
@@ -34,10 +34,10 @@ type
     [TestCase('QueueAnonymousMethodAndWait-13','13')]
     [TestCase('QueueAnonymousMethodAndWait-14','14')]
     [TestCase('QueueAnonymousMethodAndWait-15','15')]
-    [TestCase('QueueAnonymousMethodAndWait-16','16')]}
+    [TestCase('QueueAnonymousMethodAndWait-16','16')]
     procedure QueueAnonymousMethodAndWait(HowMany : Integer);
 
-{    [Test]
+    [Test]
     [TestCase('QueueAnonymousFunctionAndWait-1','1')]
     [TestCase('QueueAnonymousFunctionAndWait-2','2')]
     [TestCase('QueueAnonymousFunctionAndWait-3','3')]
@@ -53,7 +53,7 @@ type
     [TestCase('QueueAnonymousFunctionAndWait-13','13')]
     [TestCase('QueueAnonymousFunctionAndWait-14','14')]
     [TestCase('QueueAnonymousFunctionAndWait-15','15')]
-    [TestCase('QueueAnonymousFunctionAndWait-16','16')]}
+    [TestCase('QueueAnonymousFunctionAndWait-16','16')]
     procedure QueueAnonymousFunctionAndWait(HowMany : Integer);
 
 {    [Test]}
@@ -138,7 +138,7 @@ var
   j1, j2 : IJob;
   bj2Finished : boolean;
   timer : TStopWatch;
-  bOK : boolean;
+  iMS : Int64;
 begin
   bj2Finished := False;
   j1 := TJobManager.Job(
@@ -156,14 +156,14 @@ begin
   );
   jobs.Queue(j1);
   jobs.Queue(j2);
-  timer.Reset;
-  bOK := j1.Wait(4000);
-  if (not bOK) then
+  timer := TStopWatch.StartNew;
+  if (not j1.Wait(4000)) then
   begin
     Assert.Fail('Job Wait Timed Out');
   end;
-  if timer.ElapsedMilliseconds < 3000 then
-    Assert.Fail('Job did not wait');
+  iMS := timer.ElapsedMilliseconds;
+  if (iMS < 3000) then
+    Assert.Fail('Job did not wait: '+iMS.ToString);
   Assert.AreEqual(True, bj2Finished, 'Second job did not run while waiting');
 end;
 
