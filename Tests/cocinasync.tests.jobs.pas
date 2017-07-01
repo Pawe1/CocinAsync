@@ -138,7 +138,7 @@ var
   j1, j2 : IJob;
   bj2Finished : boolean;
   timer : TStopWatch;
-  bOK : boolean;
+  iMS : Int64;
 begin
   bj2Finished := False;
   j1 := TJobManager.Job(
@@ -156,14 +156,14 @@ begin
   );
   jobs.Queue(j1);
   jobs.Queue(j2);
-  timer.Reset;
-  bOK := j1.Wait(4000);
-  if (not bOK) then
+  timer := TStopWatch.StartNew;
+  if (not j1.Wait(4000)) then
   begin
     Assert.Fail('Job Wait Timed Out');
   end;
-  if timer.ElapsedMilliseconds < 3000 then
-    Assert.Fail('Job did not wait');
+  iMS := timer.ElapsedMilliseconds;
+  if (iMS < 3000) then
+    Assert.Fail('Job did not wait: '+iMS.ToString);
   Assert.AreEqual(True, bj2Finished, 'Second job did not run while waiting');
 end;
 

@@ -9,7 +9,8 @@ type
     procedure SetupJob;
     procedure ExecuteJob;
     procedure FinishJob;
-    function Wait(Timeout : Cardinal = 0) : boolean;
+    function Wait(Timeout : Cardinal = 0) : boolean; overload;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload;
   end;
 
   IJob<T> = interface(IJob)
@@ -48,7 +49,8 @@ type
     procedure ExecuteJob; inline;
     procedure SetupJob; inline;
     procedure FinishJob; inline;
-    function Wait(Timeout : Cardinal = 0) : boolean; //inline;
+    function Wait(Timeout : Cardinal = 0) : boolean; overload; //inline;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload;
     function Result : T; inline;
   end;
 
@@ -340,6 +342,14 @@ begin
   // Nothing to Setup
 end;
 
+procedure TDefaultJob<T>.Wait(var Completed: boolean; Timeout: Cardinal);
+var
+  wr : TWaitResult;
+begin
+  wr := FEvent.WaitFor(Timeout);
+  Completed := wr <> TWaitResult.wrTimeout;
+end;
+
 function TDefaultJob<T>.Wait(Timeout: Cardinal): boolean;
 var
   wr : TWaitResult;
@@ -365,7 +375,7 @@ var
   j : IJob;
   timer : TStopWatch;
 begin
-  timer.Reset;
+  timer := TStopWatch.StartNew;
   Result := True;
   while Count > 0 do
   begin
@@ -396,7 +406,7 @@ var
   j : IJob<T>;
   timer : TStopWatch;
 begin
-  timer.Reset;
+  timer := TStopWatch.StartNew;
   Result := True;
   while Count > 0 do
   begin
