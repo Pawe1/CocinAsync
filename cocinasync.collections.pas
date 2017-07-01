@@ -77,6 +77,8 @@ type
       Key: K;
       Value: V;
       Next: Pointer;
+      Visiting : integer;
+      Removed : integer;
     end;
     TItemArray = system.TArray<Pointer>;
   strict private
@@ -117,7 +119,7 @@ type
 
 implementation
 
-uses Math;
+uses Math, System.Generics.Collections;
 
 { TInterlockedHelper }
 
@@ -349,10 +351,10 @@ end;
 function THash<K, V>.CalcDepth(item : PItem) : integer;
 begin
   Result := 1;
-  while (item <> nil) and (item.Next <> nil) do
+  while (item <> nil) and (item^.Next <> nil) do
   begin
     inc(Result);
-    item := item.Next;
+    item := item^.Next;
   end;
 end;
 
@@ -441,14 +443,15 @@ end;
 
 function THash<K, V>.GetHas(Key: K): boolean;
 var
-  val : V;
+  p, pPrior: PItem;
+  iDepth: integer;
 begin
-  val := GetMap(Key);
-  Result := @val <> nil;
+  GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
+  Result := (p <> nil) and (p^.Removed = 0);
 end;
 
 function THash<K, V>.GetHashIndex(Key: K): Integer;
-const Mask = not Integer($80000000);
+  const Mask = not Integer($80000000);
 begin
   result := (Mask and ((Mask and FComparer.GetHashCode(Key)) + 1)) and (FMemSize);
 end;
@@ -461,7 +464,15 @@ begin
   GetMapPointer(Key, GetHashIndex(Key), pPrior, p, iDepth);
   if p <> nil then
   begin
-    Result := p.Value;
+    TInterlocked.Increment(p^.Visiting);
+    try
+      if p^.Removed = 0 then
+        Result := p^.Value
+      else
+        Result := V(nil);
+    finally
+      TInterlocked.Decrement(p^.Visiting);
+    end;
   end else
     Result := V(nil);
 end;
@@ -479,7 +490,7 @@ begin
     begin
       repeat
         Prior := p;
-        p := p.Next;
+        p := p^.Next;
         inc(Depth);
       until (p = nil) or FComparer.Equals(p.Key, Key);
 
@@ -509,16 +520,18 @@ begin
     if NewItem = nil then
     begin
       New(pNew);
-      pNew.Key := Key;
-      pNew.Value := Value;
+      pNew^.Key := Key;
+      pNew^.Value := Value;
+      pNew^.Visiting := 0;
+      pNew^.Removed := 0;
     end else
       pNew := NewItem;
-    pNew.Next := nil;
+    pNew^.Next := nil;
 
     if iDepth > 0 then
     begin
       // Slot occupied but key not found
-      pNew.Next := p;
+      pNew^.Next := p;
       TInterlocked.CompareExchange(pPrior^.Next, pNew, p, bSuccess);
       if not bSuccess then
       begin
@@ -564,20 +577,42 @@ var
   p : PItem;
   del : boolean;
   i : integer;
+  sw : TSpinWait;
+  lst : TList<PItem>;
 begin
-  for i := low(FItems) to High(FItems) do
-  begin
-    p := FItems[i];
-    if p <> nil then
+  lst := TList<PItem>.Create;
+  try
+    for i := low(FItems) to High(FItems) do
     begin
-      repeat
-        del := False;
-        visitor(p^.Key, p^.Value, del);
-        if del then
-          Remove(p^.Key);
-        p := p^.Next;
-      until p = nil
+      p := FItems[i];
+      if p <> nil then
+      begin
+        repeat
+          del := False;
+          TInterlocked.Increment(p^.Visiting);
+          try
+            visitor(p^.Key, p^.Value, del);
+            if del then
+            begin
+              TInterlocked.Increment(p^.Removed);
+              lst.Add(p);
+              sw.Reset;
+              while p^.Visiting <> 1 do
+                sw.SpinCycle;
+            end;
+          finally
+            TInterlocked.Decrement(p^.Visiting);
+          end;
+          p := p^.Next;
+        until p = nil
+      end;
     end;
+    for i := 0 to lst.Count-1 do
+    begin
+      Remove(lst[i]^.Key);
+    end;
+  finally
+    lst.Free;
   end;
 end;
 

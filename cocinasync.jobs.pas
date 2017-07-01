@@ -2,13 +2,31 @@ unit cocinasync.jobs;
 
 interface
 
-uses System.SysUtils;
+uses System.SysUtils, System.SyncObjs, Cocinasync.Collections;
 
 type
   IJob = interface
     procedure SetupJob;
     procedure ExecuteJob;
     procedure FinishJob;
+    function Wait(Timeout : Cardinal = 0) : boolean; overload;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload;
+  end;
+
+  IJob<T> = interface(IJob)
+    function Result : T;
+  end;
+
+  TJobQueue = class(TQueue<IJob>)
+  public
+    function WaitForAll(Timeout : Cardinal = 0) : boolean; inline;
+    procedure Abort;
+  end;
+
+  TJobQueue<T> = class(TQueue<IJob<T>>)
+  public
+    function WaitForAll(Timeout : Cardinal = 0) : boolean; inline;
+    procedure Abort;
   end;
 
   IJobs = interface
@@ -17,28 +35,44 @@ type
     procedure WaitForAll(Timeout : Cardinal = 0);
   end;
 
-function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
+  TDefaultJob<T> = class(TInterfacedObject, IJob, IJob<T>)
+  private
+    FProcToExecute : TProc;
+    FFuncToExecute : TFunc<T>;
+    FEvent : TEvent;
+    FResult : T;
+    procedure SetEvent; inline;
+  public
+    constructor Create(ProcToExecute : TProc; FuncToExecute : TFunc<T>); reintroduce; virtual;
+    destructor Destroy; override;
+
+    procedure ExecuteJob; inline;
+    procedure SetupJob; inline;
+    procedure FinishJob; inline;
+    function Wait(Timeout : Cardinal = 0) : boolean; overload; inline;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload; inline;
+    function Result : T; inline;
+  end;
+
+  TJobManager = class
+  public
+    class function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
+    class function Job(const AJob : TProc) : IJob; overload; inline;
+    class function Job<T>(const AJob : TFunc<T>) : IJob<T>; overload; inline;
+    class function Execute(const AJob : TProc; AJobs : IJobs = nil) : IJob; overload; inline;
+    class function Execute<T>(const AJob : TFunc<T>; AJobs : IJobs = nil) : IJob<T>; overload; inline;
+    class function Execute(const AJob : TProc; AQueue : TJobQueue; AJobs : IJobs = nil) : IJob; overload; inline;
+    class function Execute<T>(const AJob : TFunc<T>; AQueue : TJobQueue<T>; AJobs : IJobs = nil) : IJob<T>; overload; inline;
+  end;
 
 var
   Jobs : IJobs;
 
 implementation
 
-uses System.Classes, System.SyncObjs, System.Generics.Collections, System.DateUtils,
-  cocinasync.async;
+uses System.Classes, cocinasync.async, System.Diagnostics;
 
 type
-  TDefaultJob = class(TInterfacedObject, IJob)
-  private
-    FProcToExecute : TProc;
-  public
-    constructor Create(ProcToExecute : TProc); reintroduce; virtual;
-
-    procedure ExecuteJob;
-    procedure SetupJob;
-    procedure FinishJob;
-  end;
-
   TJobs = class;
 
   TJobRunner = class(TThread)
@@ -54,25 +88,26 @@ type
   TJobs = class(TInterfacedObject, IJobs)
   strict private
     FTerminating : boolean;
-    FRunners : TList<TJobRunner>;
+    FRunners : TQueue<TJobRunner>;
     FJobs : TQueue<IJob>;
-    FJobsCS : TCriticalSection;
     procedure TerminateRunners;
   private
     FJobRunnerCount : integer;
     FJobsInProcess : integer;
   public
-    constructor Create(RunnerCount : Integer); reintroduce; virtual;
+    constructor Create(RunnerCount : Integer; MaxJobs : Integer = 4096); reintroduce; virtual;
     destructor Destroy; override;
 
     function Next : IJob; inline;
     procedure Queue(const DoIt : TProc); overload; inline;
     procedure Queue(const Job : IJob); overload; inline;
-    procedure WaitForAll(Timeout : Cardinal = 0);
+    procedure WaitForAll(Timeout : Cardinal = 0); inline;
     property Terminating : boolean read FTerminating;
   end;
 
-function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
+{ TJobManager }
+
+class function TJobManager.CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
 var
   iCnt : Cardinal;
 begin
@@ -84,25 +119,67 @@ begin
   Result := TJobs.Create(iCnt);
 end;
 
+class function TJobManager.Execute(const AJob: TProc; AJobs : IJobs = nil): IJob;
+begin
+  Result := Job(AJob);
+  if AJobs = nil then
+    AJobs := Jobs;
+  AJobs.Queue(Result);
+end;
+
+class function TJobManager.Execute<T>(const AJob: TFunc<T>; AJobs : IJobs = nil): IJob<T>;
+begin
+  Result := Job<T>(AJob);
+  if AJobs = nil then
+    AJobs := Jobs;
+  AJobs.Queue(Result);
+end;
+
+class function TJobManager.Execute(const AJob: TProc; AQueue: TJobQueue; AJobs : IJobs = nil): IJob;
+begin
+  Result := Job(AJob);
+  AQueue.Enqueue(Result);
+  if AJobs = nil then
+    AJobs := Jobs;
+  Jobs.Queue(Result);
+end;
+
+class function TJobManager.Execute<T>(const AJob: TFunc<T>; AQueue: TJobQueue<T>; AJobs : IJobs = nil): IJob<T>;
+begin
+  Result := Job<T>(AJob);
+  AQueue.Enqueue(Result);
+  if AJobs = nil then
+    AJobs := Jobs;
+  AJobs.Queue(Result);
+end;
+
+class function TJobManager.Job(const AJob: TProc): IJob;
+begin
+  Result := TDefaultJob<Boolean>.Create(AJob,nil);
+end;
+
+class function TJobManager.Job<T>(const AJob: TFunc<T>): IJob<T>;
+begin
+  Result := TDefaultJob<T>.Create(nil, AJob);
+end;
+
 { TJobs }
 
-constructor TJobs.Create(RunnerCount: Integer);
+constructor TJobs.Create(RunnerCount: Integer; MaxJobs : Integer = 4096);
 begin
   inherited Create;
   FTerminating := False;
-  FJobsCS := TCriticalSection.Create;
-  FJobs := TQueue<IJob>.Create;
+  FJobs := TQueue<IJob>.Create(MaxJobs);
   FJobRunnerCount := 0;
   FJobsInProcess := 0;
-  FRunners := TList<TJobRunner>.Create;
+  FRunners := TQueue<TJobRunner>.Create(RunnerCount+1);
   while FRunners.Count < RunnerCount do
-    FRunners.Add(TJobRunner.Create(Self));
+    FRunners.Enqueue(TJobRunner.Create(Self));
 end;
 
 destructor TJobs.Destroy;
 begin
   TerminateRunners;
-  FJobsCS.Free;
   FJobs.Free;
   FRunners.Free;
   inherited;
@@ -110,73 +187,66 @@ end;
 
 function TJobs.Next: IJob;
 begin
-  Result := nil;
-  // NOTE: FJobs.Count should be fine to read outside of the critical section.
-  //       It's only ever changed inside the critical section.
-  if FJobs.Count > 0 then
-  begin
-    FJobsCS.Enter;
-    try
-      if FJobs.Count > 0 then
-        Result := FJobs.Dequeue;
-    finally
-      FJobsCS.Leave;
-    end;
-  end;
+  Result := FJobs.Dequeue;
 end;
 
 procedure TJobs.Queue(const DoIt: TProc);
 begin
-  Queue(TDefaultJob.Create(DoIt));
+  Queue(TJobManager.Job(DoIt));
 end;
 
 procedure TJobs.Queue(const Job : IJob);
 begin
   if FTerminating then
     raise Exception.Create('Cannot queue while Jobs are terminating.');
-  FJobsCS.Enter;
-  try
-    FJobs.Enqueue(Job);
-  finally
-    FJobsCS.Leave;
-  end;
+  FJobs.Enqueue(Job);
 end;
 
 procedure TJobs.TerminateRunners;
 var
   i : integer;
+  r : TJobRunner;
+  rq : TQueue<TJobRunner>;
 begin
   FTerminating := True;
   WaitForAll(3000);
-  FJobsCS.Enter;
+  FJobs.Clear;
+
+  rq := TQueue<TJobRunner>.Create(FRunners.Count+1);
   try
-    FJobs.Clear;
+    repeat
+      r := FRunners.Dequeue;
+      if not Assigned(r) then
+        break;
+      r.Terminate;
+      rq.Enqueue(r);
+    until not Assigned(r);
+
+    while FJobRunnerCount > 0 do
+      Sleep(10);
+
+    repeat
+      r := rq.Dequeue;
+      r.Free;
+    until not Assigned(r);
   finally
-    FJobsCS.Leave;
+    rq.Free;
   end;
-  for i := 0 to FRunners.Count-1 do
-  begin
-    FRunners[i].Terminate;
-  end;
-  while FJobRunnerCount > 0 do
-    Sleep(10);
-  for i := 0 to FRunners.Count-1 do
-  begin
-    FRunners[i].Free;
-  end;
-  FRunners.Clear;
 end;
+
 
 procedure TJobs.WaitForAll(Timeout : Cardinal = 0);
 var
-  dtStart : TDateTime;
+  timer : TStopWatch;
+  sw : TSpinWait;
 begin
-  dtStart := Now;
+  timer := TStopWatch.StartNew;
+  sw.Reset;
   while ((FJobs.Count > 0) or (FJobsInProcess > 0)) and
         (  (Timeout = 0) or
-           ((Timeout > 0) and (MillisecondsBetween(dtStart,Now) >= Timeout))
+           ((Timeout > 0) and (timer.ElapsedMilliseconds <= Timeout))
         ) do
-    sleep(10);
+    sw.SpinCycle;
 end;
 
 { TJobRunner }
@@ -226,29 +296,133 @@ end;
 
 { TDefaultJob }
 
-constructor TDefaultJob.Create(ProcToExecute: TProc);
+constructor TDefaultJob<T>.Create(ProcToExecute : TProc; FuncToExecute : TFunc<T>);
 begin
   inherited Create;
+  FResult := T(nil);
   FProcToExecute := ProcToExecute;
+  FFuncToExecute := FuncToExecute;
+  FEvent := TEvent.Create;
+  FEvent.ResetEvent;
 end;
 
-procedure TDefaultJob.ExecuteJob;
+destructor TDefaultJob<T>.Destroy;
 begin
-  FProcToExecute();
+  FEvent.Free;
+  inherited;
 end;
 
-procedure TDefaultJob.FinishJob;
+procedure TDefaultJob<T>.ExecuteJob;
+begin
+  if Assigned(FProcToExecute) then
+    FProcToExecute()
+  else if Assigned(FFuncToExecute) then
+    FResult := FFuncToExecute();
+
+  SetEvent;
+end;
+
+procedure TDefaultJob<T>.FinishJob;
 begin
   // Nothing to finish
 end;
 
-procedure TDefaultJob.SetupJob;
+function TDefaultJob<T>.Result: T;
+begin
+  Result := FResult;
+end;
+
+procedure TDefaultJob<T>.SetEvent;
+begin
+  FEvent.SetEvent;
+end;
+
+procedure TDefaultJob<T>.SetupJob;
 begin
   // Nothing to Setup
 end;
 
+procedure TDefaultJob<T>.Wait(var Completed: boolean; Timeout: Cardinal);
+var
+  wr : TWaitResult;
+begin
+  wr := FEvent.WaitFor(Timeout);
+  Completed := wr <> TWaitResult.wrTimeout;
+end;
+
+function TDefaultJob<T>.Wait(Timeout: Cardinal): boolean;
+var
+  wr : TWaitResult;
+begin
+  wr := FEvent.WaitFor(Timeout);
+  Result := wr <> TWaitResult.wrTimeout;
+end;
+
+
+{ TJobQueue }
+
+procedure TJobQueue.Abort;
+var
+  j : IJob;
+begin
+  repeat
+    j := Dequeue;
+  until j = nil;
+end;
+
+function TJobQueue.WaitForAll(Timeout: Cardinal): boolean;
+var
+  j : IJob;
+  timer : TStopWatch;
+begin
+  timer := TStopWatch.StartNew;
+  Result := True;
+  while Count > 0 do
+  begin
+    j := Dequeue;
+    if not j.Wait(1) then
+      Enqueue(j);
+    if (Count > 0) and (timer.ElapsedMilliseconds >= Timeout) then
+    begin
+      Result := False;
+      break;
+    end;
+  end;
+end;
+
+{ TJobQueue<T> }
+
+procedure TJobQueue<T>.Abort;
+var
+  j : IJob;
+begin
+  repeat
+    j := Dequeue;
+  until j = nil;
+end;
+
+function TJobQueue<T>.WaitForAll(Timeout: Cardinal): boolean;
+var
+  j : IJob<T>;
+  timer : TStopWatch;
+begin
+  timer := TStopWatch.StartNew;
+  Result := True;
+  while Count > 0 do
+  begin
+    j := Dequeue;
+    if not j.Wait(1) then
+      Enqueue(j);
+    if (Count > 0) and (timer.ElapsedMilliseconds >= Timeout) then
+    begin
+      Result := False;
+      break;
+    end;
+  end;
+end;
+
 initialization
-  Jobs := CreateJobs;
+  Jobs := TJobManager.CreateJobs;
 
 finalization
   Jobs.WaitForAll;

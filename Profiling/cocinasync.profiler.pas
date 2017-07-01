@@ -69,24 +69,28 @@ end;
 class procedure TProfiles.DoHashIteration(RunCnt, IterationSize : integer; ThreadCount : Integer; const Log : TLogProc);
 begin
   Log('Hash '+IterationSize.ToString+' Each');
-  SetupTest('Strings'#9'Ints'#9'Intfs'#9'Lkps'#9'Empty'#9'Max'#9'Avg',
+  SetupTest('Strings'#9'Ints'#9'Intfs'#9'Lkps'#9'Removes'#9'Empty'#9'Max'#9'Avg',
     Log,
     procedure(CLog, DLog, TLog : TStrings)
     var
+      DepthR : THash<String, Integer>.TDepth;
       DepthS : THash<String, Integer>.TDepth;
       DepthI : THash<Integer, Integer>.TDepth;
       DepthO : THash<IInterface, Integer>.TDepth;
+      chr : THash<String,Integer>;
       chs : THash<String,Integer>;
       chi : THash<Integer,Integer>;
       cho : THash<IInterface,Integer>;
+      dhr : TDictionary<String, Integer>;
       dhs : TDictionary<String, Integer>;
       dhi : TDictionary<Integer, Integer>;
       dho : TDictionary<IInterface, Integer>;
       dhcs : TCriticalSection;
+      dhcr : TCriticalSection;
       p : TParallel.TLoopResult;
       iThreadsComplete : integer;
-      iTimeDHS, iTimeDHI, iTimeDHO, iTimeDHL : Int64;
-      iTimeCHS, iTimeCHI, iTimeCHO, iTimeCHL : Int64;
+      iTimeDHS, iTimeDHI, iTimeDHO, iTimeDHL, iTimeDHR : Int64;
+      iTimeCHS, iTimeCHI, iTimeCHO, iTimeCHL, iTimeCHR : Int64;
       i: Integer;
     begin
       iThreadsComplete := 0;
@@ -94,17 +98,22 @@ begin
       iTimeDHI := 0;
       iTimeDHO := 0;
       iTimeDHL := 0;
+      iTimeDHR := 0;
       iTimeCHS := 0;
       iTimeCHI := 0;
       iTimeCHO := 0;
       iTimeCHL := 0;
+      iTimeCHR := 0;
       chs := THash<String,Integer>.Create((IterationSize * ThreadCount)+1);
       chi := THash<Integer,Integer>.Create((IterationSize * ThreadCount)+1);
       cho := THash<IInterface,Integer>.Create((IterationSize * ThreadCount)+1);
+      chr := THash<string,Integer>.Create((IterationSize * ThreadCount)+1);
       dhs := TDictionary<String, Integer>.Create;
       dhi := TDictionary<Integer, Integer>.Create;
       dho := TDictionary<IInterface, Integer>.Create;
+      dhr := TDictionary<string, Integer>.Create;
       dhcs := TCriticalSection.Create;
+      dhcr := TCriticalSection.Create;
       try
         for i := 1 to RunCnt do
         begin
@@ -137,6 +146,27 @@ begin
 
                 sw := TStopwatch.StartNew;
                 for i := 1 to IterationSize do
+                begin
+                  if ThreadCount > 1 then
+                    dhcr.Enter;
+                  try
+                    dhr.AddOrSetValue(i.ToString, i);
+                    dhr.Remove(i.ToString);
+                  finally
+                    if ThreadCount > 1 then
+                      dhcr.Leave;
+                  end;
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeDHR, sw.ElapsedTicks);
+                  end
+                );
+
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
                   chs[TThread.Current.ThreadID.ToString+'~'+i.ToString] := i;
                 sw.Stop;
                 TAsync.SynchronizeIfInThread(
@@ -146,6 +176,19 @@ begin
                   end
                 );
 
+                sw := TStopwatch.StartNew;
+                for i := 1 to IterationSize do
+                begin
+                  chr[i.ToString] := i;
+                  chr.Remove(i.ToString);
+                end;
+                sw.Stop;
+                TAsync.SynchronizeIfInThread(
+                  procedure
+                  begin
+                    inc(iTimeCHR, sw.ElapsedTicks);
+                  end
+                );
 
                 sw := TStopwatch.StartNew;
                 for i := 1 to IterationSize do
@@ -252,6 +295,7 @@ begin
             sleep(10);
         end;
 
+        DepthR := chr.DebugDepth;
         DepthS := chs.DebugDepth;
         DepthI := chi.DebugDepth;
         DepthO := cho.DebugDepth;
@@ -260,10 +304,12 @@ begin
         DLog.Add((iTimeDHI div RunCnt).ToString);
         DLog.Add((iTimeDHO div RunCnt).ToString);
         DLog.Add((iTimeDHL div RunCnt).ToString);
+        DLog.Add((iTimeDHR div RunCnt).ToString);
         CLog.Add((iTimeCHS div RunCnt).ToString);
         CLog.Add((iTimeCHI div RunCnt).ToString);
         CLog.Add((iTimeCHO div RunCnt).ToString);
         CLog.Add((iTimeCHL div RunCnt).ToString);
+        CLog.Add((iTimeCHR div RunCnt).ToString);
         CLog.Add((Round((DepthS.EmptyCnt+DepthI.EmptyCnt+DepthO.EmptyCnt) / (DepthS.Size*3)*10000)/100).ToString);
         CLog.Add((Max(Max(DepthS.MaxDepth, DepthI.MaxDepth), DepthO.MaxDepth) ).ToString);
         CLog.Add((Round((DepthS.Average+DepthI.Average+DepthO.Average) / (DepthS.Size*3)*10000)/100).ToString);
@@ -283,16 +329,23 @@ begin
           TLog.Add((Round(((iTimeDHL - iTimeCHL) / iTimeDHL)*10000) / 100).ToString)
         else
           TLog.Add('Err');
+        if iTimeDHR > 0 then
+          TLog.Add((Round(((iTimeDHR - iTimeCHR) / iTimeDHR)*10000) / 100).ToString)
+        else
+          TLog.Add('Err');
 
 
       finally
+        chr.Free;
         chs.Free;
         chi.Free;
         cho.Free;
+        dhr.Free;
         dhs.Free;
         dhi.Free;
         dho.Free;
         dhcs.Free;
+        dhcr.Free;
       end;
     end
   );
