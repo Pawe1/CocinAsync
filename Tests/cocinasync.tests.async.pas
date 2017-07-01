@@ -31,27 +31,37 @@ uses System.SysUtils, System.DateUtils, SyncObjs;
 procedure TestTAsync.OnDo;
 var
   bDo, bDone : boolean;
+  iOnCnt, iDoCnt : integer;
 begin
+  iOnCnt := 0;
+  iDoCnt := 0;
   bDo := False;
   bDone := False;
   Async.OnDo(
     function : boolean
     begin
+      TInterlocked.Increment(iOnCnt);
       Result := bDo;
     end,
     procedure
     begin
+      TInterlocked.Increment(iDoCnt);
       bDone := True;
-    end
+    end,
+    1000,nil,False,False
   );
   Sleep(10);
   if bDone then
   begin
-    Assert.Fail('Did not wait until told to continue.');
+    Assert.Fail('Did not wait until told to continue. OnCnt: '+iOnCnt.ToString+'  DoCnt: '+iDoCnt.ToString);
     exit;
   end;
   bDo := True;
-  Sleep(10);
+  Sleep(1010);
+  if iOnCnt = 0 then
+    Assert.Fail('On Never Fired.');
+  if iDoCnt > 1 then
+    Assert.Fail('Do fired more than once.');
   Assert.AreEqual(True, bDone);
 end;
 
