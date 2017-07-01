@@ -49,8 +49,8 @@ type
     procedure ExecuteJob; inline;
     procedure SetupJob; inline;
     procedure FinishJob; inline;
-    function Wait(Timeout : Cardinal = 0) : boolean; overload; //inline;
-    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload;
+    function Wait(Timeout : Cardinal = 0) : boolean; overload; inline;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload; inline;
     function Result : T; inline;
   end;
 
