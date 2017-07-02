@@ -9,8 +9,8 @@ type
     procedure SetupJob;
     procedure ExecuteJob;
     procedure FinishJob;
-    function Wait(Timeout : Cardinal = 0) : boolean; overload;
-    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload;
+    function Wait(Timeout : Cardinal = INFINITE) : boolean; overload;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = INFINITE); overload;
   end;
 
   IJob<T> = interface(IJob)
@@ -19,20 +19,20 @@ type
 
   TJobQueue = class(TQueue<IJob>)
   public
-    function WaitForAll(Timeout : Cardinal = 0) : boolean; inline;
+    function WaitForAll(Timeout : Cardinal = INFINITE) : boolean; inline;
     procedure Abort;
   end;
 
   TJobQueue<T> = class(TQueue<IJob<T>>)
   public
-    function WaitForAll(Timeout : Cardinal = 0) : boolean; inline;
+    function WaitForAll(Timeout : Cardinal = INFINITE) : boolean; inline;
     procedure Abort;
   end;
 
   IJobs = interface
     procedure Queue(const DoIt : TProc); overload;
     procedure Queue(const Job : IJob); overload;
-    procedure WaitForAll(Timeout : Cardinal = 0);
+    procedure WaitForAll(Timeout : Cardinal = INFINITE);
   end;
 
   TDefaultJob<T> = class(TInterfacedObject, IJob, IJob<T>)
@@ -49,8 +49,8 @@ type
     procedure ExecuteJob; inline;
     procedure SetupJob; inline;
     procedure FinishJob; inline;
-    function Wait(Timeout : Cardinal = 0) : boolean; overload; inline;
-    procedure Wait(var Completed : boolean; Timeout : Cardinal = 0); overload; inline;
+    function Wait(Timeout : Cardinal = INFINITE) : boolean; overload; inline;
+    procedure Wait(var Completed : boolean; Timeout : Cardinal = INFINITE); overload; inline;
     function Result : T; inline;
   end;
 
@@ -101,7 +101,7 @@ type
     function Next : IJob; inline;
     procedure Queue(const DoIt : TProc); overload; inline;
     procedure Queue(const Job : IJob); overload; inline;
-    procedure WaitForAll(Timeout : Cardinal = 0); inline;
+    procedure WaitForAll(Timeout : Cardinal = INFINITE); inline;
     property Terminating : boolean read FTerminating;
   end;
 
@@ -235,7 +235,7 @@ begin
 end;
 
 
-procedure TJobs.WaitForAll(Timeout : Cardinal = 0);
+procedure TJobs.WaitForAll(Timeout : Cardinal = INFINITE);
 var
   timer : TStopWatch;
   sw : TSpinWait;
@@ -329,6 +329,7 @@ end;
 
 function TDefaultJob<T>.Result: T;
 begin
+  Wait;
   Result := FResult;
 end;
 
@@ -342,7 +343,7 @@ begin
   // Nothing to Setup
 end;
 
-procedure TDefaultJob<T>.Wait(var Completed: boolean; Timeout: Cardinal);
+procedure TDefaultJob<T>.Wait(var Completed: boolean; Timeout: Cardinal = INFINITE);
 var
   wr : TWaitResult;
 begin
@@ -350,7 +351,7 @@ begin
   Completed := wr <> TWaitResult.wrTimeout;
 end;
 
-function TDefaultJob<T>.Wait(Timeout: Cardinal): boolean;
+function TDefaultJob<T>.Wait(Timeout: Cardinal = INFINITE): boolean;
 var
   wr : TWaitResult;
 begin
@@ -370,7 +371,7 @@ begin
   until j = nil;
 end;
 
-function TJobQueue.WaitForAll(Timeout: Cardinal): boolean;
+function TJobQueue.WaitForAll(Timeout: Cardinal = INFINITE): boolean;
 var
   j : IJob;
   timer : TStopWatch;
@@ -401,7 +402,7 @@ begin
   until j = nil;
 end;
 
-function TJobQueue<T>.WaitForAll(Timeout: Cardinal): boolean;
+function TJobQueue<T>.WaitForAll(Timeout: Cardinal = INFINITE): boolean;
 var
   j : IJob<T>;
   timer : TStopWatch;
