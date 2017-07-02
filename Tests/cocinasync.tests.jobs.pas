@@ -56,8 +56,11 @@ type
     [TestCase('QueueAnonymousFunctionAndWait-16','16')]
     procedure QueueAnonymousFunctionAndWait(HowMany : Integer);
 
-{    [Test]}
+    [Test]
     procedure TestAbort;
+
+    [Test]
+    procedure JobReturnValue;
 
     [Test]
     procedure JobWait;
@@ -133,6 +136,22 @@ begin
   Assert.Pass;
 end;
 
+procedure TestIJobs.JobReturnValue;
+var
+  job : IJob<string>;
+  sVal : string;
+begin
+  job := TJobManager.Execute<string>(
+        function : string
+        begin
+          Sleep(3000);
+          result := 'Value Set';
+        end
+      );
+  sVal := job.Result;
+  Assert.AreEqual('Value Set',sVal);
+end;
+
 procedure TestIJobs.JobWait;
 var
   j1, j2 : IJob;
@@ -159,7 +178,8 @@ begin
   timer := TStopWatch.StartNew;
   if (not j1.Wait(4000)) then
   begin
-    Assert.Fail('Job Wait Timed Out');
+    iMS := timer.ElapsedMilliseconds;
+    Assert.Fail('Job Wait Timed Out: '+iMS.ToString);
   end;
   iMS := timer.ElapsedMilliseconds;
   if (iMS < 3000) then
@@ -173,7 +193,8 @@ var
   iMS : Cardinal;
   i : integer;
   iWait : integer;
-  queue : TJobQueue<Boolean>;
+  queue : TJobQueue<integer>;
+  jobLast : IJob<integer>;
 begin
   if HowMany > CPUCount then
   begin
@@ -181,22 +202,24 @@ begin
   end;
   iWait := 1005+ (HowMany div CPUCount); // give 5ms buffer
 
-  queue := TJobQueue<Boolean>.Create(HowMany+1);
+  queue := TJobQueue<integer>.Create(HowMany+1);
   try
     dtStart := Now;
 
     for i := 1 to HowMany do
-      TJobManager.Execute<Boolean>(
-        function : Boolean
+      jobLast := TJobManager.Execute<integer>(
+        function : Integer
         begin
           Sleep(1000);
-          Result := True;
+          Result := i;
         end,
         queue,
         FJobs
       );
     if not queue.WaitForAll(iWait) then
       Assert.Fail('Wait Timeout');
+    if jobLast.Result = 0 then
+      Assert.Fail('Job Result was not set');
   finally
     queue.Free;
   end;
