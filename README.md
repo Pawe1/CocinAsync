@@ -1,6 +1,6 @@
 # CocinAsync #
 
-A Delphi library to simplify coding and improve performance of asynchronous and multithreaded applications.
+A high performance library for Delphi to simplify coding and improve performance of asynchronous and multithreaded applications.
 
 ### Unit: cocinasync.async
 *Inline coding helpers for implementing asynchronous actions*
@@ -114,13 +114,54 @@ Delphi's System.Threading unit includes a Task execution library which on it's s
 
 ```
 #!delphi
-
-Jobs.Queue(
+// Queue a background job that will execute as soon as an idle job runner notices it.
+TJobManager.Excute(
   procedure
   begin
     // Add something to the Jobs Queue and execute as soon as possible
   end
 );
+
+// Jobs can also return values.  Asking for the return value 
+// will cause the thread to wait until the value is available.
+jobCount := TJobManager.Execute<Integer>(
+  function : Integer
+  begin
+    Result := 0;
+    for i := 1 to 30 do
+    begin 
+     sleep(1000)
+     inc(Result);
+  end
+);
+
+// ... do some other work here in the main thread or in other jobs
+
+Result := jobCount.Result; // will stop execution of this thread here until 
+                           //the jobCount job has returned it's result
+
+// Sometimes you want to do a bunch of jobs and wait for them all to complete.  
+// To do this you can use a TJobQueue
+
+queue := TJobQueue.Create;
+
+TJobManager.Execute(
+  procedure
+  begin
+    // do something important
+  end,
+  queue
+);
+
+TJobManager.Execute(
+  procedure
+  begin
+    // do something else here
+  end,
+  queue
+);
+
+queue.WaitForAll; // Execution will stop here until all of the jobs in the queue have completed.
 
 ```
 
@@ -132,7 +173,10 @@ Depending upon workload, it may be desirable to create a separate jobs queue for
 
 procedure FormCreate(Sender : TObject);
 begin
-  FJobs := CreateJobs(25); // Create a Jobs Runner with 25 threads
+  // Create a Jobs Runner with 25 threads
+  // Note that there is a default job runner under a global variable "Jobs"
+  // which should suffice in most applications.
+  FJobs := TJobManager.CreateJobs(25); 
 end; 
 
 procedure Button1Click(Sender : TObject);
