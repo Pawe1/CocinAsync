@@ -138,7 +138,14 @@ jobCount := TJobManager.Execute<Integer>(
 // ... do some other work here in the main thread or in other jobs
 
 Result := jobCount.Result; // will stop execution of this thread here until 
-                           //the jobCount job has returned it's result
+                           // the jobCount job has returned it's result.
+                           // NOTE: if you do this in the main thread, 
+                           // gui operations will block at this point until 
+                           // the job returns.  Also, if using in the main thread
+                           // do not do operations from within the job that execute
+                           // through synchronization as it will cause a deadlock.
+
+
 
 // Sometimes you want to do a bunch of jobs and wait for them all to complete.  
 // To do this you can use a TJobQueue
