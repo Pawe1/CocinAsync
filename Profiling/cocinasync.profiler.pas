@@ -334,7 +334,10 @@ begin
         else
           TLog.Add('Err');
 
-
+        chr.Clear;
+        chs.Clear;
+        chi.Clear;
+        cho.Clear;
       finally
         chr.Free;
         chs.Free;

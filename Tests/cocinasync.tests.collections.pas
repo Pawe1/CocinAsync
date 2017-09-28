@@ -29,6 +29,9 @@ type
     procedure TestHash;
 
     [Test]
+    procedure TestHashClear;
+
+    [Test]
     procedure TestQueue;
 
     [Test]
@@ -126,6 +129,30 @@ begin
   end;
 
   Assert.Pass;
+end;
+
+procedure TestCollections.TestHashClear;
+var
+  h : THash<string, string>;
+  i : integer;
+begin
+  h := THash<string, string>.Create;
+  try
+    for i := 1 to 40 do
+      TThread.CreateAnonymousThread(
+        procedure
+        begin
+          h['first'] := 'jason';
+          h['last'] := 'smith';
+          h.Clear;
+        end
+      );
+      Sleep(100);
+      if h.Has['first'] or h.Has['last'] then
+        Assert.Fail('Clear did not clear');
+  finally
+    h.Free;
+  end;
 end;
 
 procedure TestCollections.TestHashRemove;
