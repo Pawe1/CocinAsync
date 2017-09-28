@@ -10,13 +10,6 @@ resourcestring
   S_ARRAYISEMPTY = 'The queue is empty';
 
 type
-  TInterlockedHelper = class helper for TInterlocked
-  public
-    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer; overload;
-    class function CompareExchange(var Target: UInt64; Value: UInt64; Comparand: UInt64; out Succeeded: Boolean): UInt64; overload;
-    class function Exchange<T>(var Target: T; Value: T): T; overload;
-  end;
-
   EQueueSizeException = class(Exception)
   end;
 
@@ -67,9 +60,10 @@ type
   end;
 
   TVisitorProc<K,V> = reference to procedure(const Key : K; var Value : V; var Delete : Boolean);
+  TValueProc<K,V> = reference to procedure(const Key : K; var Value : V);
 
   THash<K,V> = class(TObject)
-  strict private
+  private
     type
     PValue = ^V;
     PItem = ^TItem;
@@ -81,9 +75,10 @@ type
       Removed : integer;
     end;
     TItemArray = system.TArray<Pointer>;
+    PItemArray = ^TItemArray;
   strict private
     FMemSize: Cardinal;
-    FItems: TItemArray;
+    FItems: PItemArray;
     FComparer : IEqualityComparer<K>;
     FKeyType: PTypeInfo;
     procedure GetMapPointer(Key: K; HashIdx : integer; var Prior, Current : PItem; var Depth : Integer); inline;
@@ -95,6 +90,8 @@ type
     function GetHashIndex(Key : K) : Integer; inline;
     function CalcDepth(item: PItem): integer; inline;
     function Remove(const Key : K; const wait : TSpinWait) : V; overload; inline;
+    function SwapItemsArray(NewItems : PItemArray) : PItemArray;
+    procedure DisposeOfItems(pi: PItemArray);
   public
     type
       TDepth = record
@@ -115,6 +112,15 @@ type
     property Has[Key : K] : boolean read GetHas;
     property Map[Key : K] : V read GetMap write SetMap; default;
     procedure Visit(const visitor : TVisitorProc<K,V>);
+    procedure Clear(OnFree : TValueProc<K,V> = nil);
+  end;
+
+  TInterlockedHelper = class helper for TInterlocked
+  public
+    class function CompareExchange(var Target: Pointer; Value: Pointer; Comparand: Pointer; out Succeeded: Boolean): Pointer; overload;
+    class function CompareExchange<K,V>(var Target: THash<K,V>.PItemArray; Value: THash<K,V>.PItemArray; Comparand: THash<K,V>.PItemArray; out Succeeded: Boolean): Pointer; overload;
+    class function CompareExchange(var Target: UInt64; Value: UInt64; Comparand: UInt64; out Succeeded: Boolean): UInt64; overload;
+    class function Exchange<T>(var Target: T; Value: T): T; overload;
   end;
 
 implementation
@@ -134,6 +140,13 @@ begin
   Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
 end;
 
+
+class function TInterlockedHelper.CompareExchange<K, V>(
+  var Target: THash<K, V>.PItemArray; Value, Comparand: THash<K, V>.PItemArray;
+  out Succeeded: Boolean): Pointer;
+begin
+  Result := AtomicCmpExchange(Target, Value, Comparand, Succeeded);
+end;
 
 class function TInterlockedHelper.Exchange<T>(var Target: T; Value : T): T;
 begin
@@ -336,16 +349,20 @@ end;
 constructor THash<K, V>.Create(EstimatedItemCount : Cardinal = 1024);
 var
   i: Integer;
+  pi : PItemArray;
 begin
   inherited Create;
   FMemSize := $FFFFFF;
   while (EstimatedItemCount < FMemSize) and (FMemSize > $F) do
     FMemSize := FMemSize shr 4;
-  SetLength(FItems,FMemSize+1);
+
+  New(pi);
+  SwapItemsArray(pi);
+  SetLength(FItems^,FMemSize+1);
   FKeyType := TypeInfo(K);
   FComparer := TEqualityComparer<K>.Default;
-  for i := Low(FItems) to High(FItems) do
-    FItems[i] := nil;
+  for i := Low(FItems^) to High(FItems^) do
+    FItems^[i] := nil;
 end;
 
 function THash<K, V>.CalcDepth(item : PItem) : integer;
@@ -356,6 +373,61 @@ begin
     inc(Result);
     item := item^.Next;
   end;
+end;
+
+procedure THash<K, V>.Clear(OnFree: TValueProc<K, V> = nil);
+var
+  pi : PItemArray;
+  i : integer;
+  p : PItem;
+begin
+  New(pi);
+  pi := SwapItemsArray(pi);
+  try
+    if Assigned(OnFree) then
+      for i := low(pi^) to High(pi^) do
+      begin
+        p := FItems^[i];
+        if p <> nil then
+        begin
+          repeat
+            TInterlocked.Increment(p^.Visiting);
+            try
+              OnFree(p^.Key, p^.Value);
+            finally
+              TInterlocked.Decrement(p^.Visiting);
+            end;
+            p := p^.Next;
+          until p = nil
+        end;
+      end;
+  finally
+    DisposeOfItems(pi);
+  end;
+end;
+
+
+procedure THash<K, V>.DisposeOfItems(pi: PItemArray);
+var
+  pNext: PItem;
+  Local_i: Integer;
+  i: Integer;
+  p: PItem;
+begin
+  for i := Low(pi^) to High(pi^) do
+    if pi^[i] <> nil then
+    begin
+      p := PItem(PItem(pi^[i])^.Next);
+      while p <> nil do
+      begin
+        pNext := p^.Next;
+        p^.Value := V(nil);
+        Dispose(PItem(p));
+        p := pNext;
+      end;
+      Dispose(PItem(pi^[i]));
+    end;
+  Dispose(pi);
 end;
 
 function THash<K, V>.DebugDepth: TDepth;
@@ -369,9 +441,9 @@ begin
   Result.Size := FMemSize+1;
   for i := 0 to FMemSize do
   begin
-    if FItems[i] <> nil then
+    if FItems^[i] <> nil then
     begin
-      iDepth := CalcDepth(FItems[I]);
+      iDepth := CalcDepth(FItems^[I]);
       Result.MaxDepth := Max(Result.MaxDepth, iDepth);
       inc(Result.Average,iDepth);
       inc(Result.AvgFilled, iDepth);
@@ -395,7 +467,7 @@ begin
   if p <> nil then
   begin
     if pPrior = nil then
-      TInterlocked.CompareExchange(FItems[GetHashIndex(Key)],p^.Next, p, bSuccess)
+      TInterlocked.CompareExchange(FItems^[GetHashIndex(Key)],p^.Next, p, bSuccess)
     else
       TInterlocked.CompareExchange(pPrior^.Next, p^.Next, p, bSuccess);
 
@@ -425,19 +497,7 @@ var
   p, pNext : PItem;
   i: Integer;
 begin
-  for i := Low(FItems) to High(FItems) do
-    if FItems[i] <> nil then
-    begin
-      p := PItem(PItem(FItems[i])^.Next);
-      while p <> nil do
-      begin
-        pNext := p^.Next;
-        p^.Value := V(nil);
-        Dispose(PItem(p));
-        p := pNext;
-      end;
-      Dispose(PItem(FItems[i]));
-    end;
+  DisposeOfItems(FItems);
   inherited;
 end;
 
@@ -483,7 +543,7 @@ var
 begin
   Depth := 0;
   Prior := nil;
-  p := FItems[HashIdx];
+  p := FItems^[HashIdx];
   if p <> nil then
   begin
     if not FComparer.Equals(p.Key, Key) then
@@ -541,7 +601,7 @@ begin
     end else
     begin
       // Slot open, start linked list with key
-      TInterlocked.CompareExchange(FItems[idx],pNew,p,bSuccess);
+      TInterlocked.CompareExchange(FItems^[idx],pNew,p,bSuccess);
       if not bSuccess then
       begin
         wait.SpinCycle;
@@ -572,6 +632,21 @@ begin
   SetMap(Key, Value, True);
 end;
 
+function THash<K, V>.SwapItemsArray(NewItems: PItemArray): PItemArray;
+var
+ bSuccess : boolean;
+ sw : TSpinWait;
+begin
+  sw.Reset;
+  bSuccess := False;
+  repeat
+    Result := FItems;
+    Tinterlocked.CompareExchange<K,V>(FItems,NewItems,FItems,bSuccess);
+    if not bSuccess then
+      sw.SpinCycle;
+  until bSuccess;
+end;
+
 procedure THash<K, V>.Visit(const visitor: TVisitorProc<K,V>);
 var
   p : PItem;
@@ -582,9 +657,9 @@ var
 begin
   lst := TList<PItem>.Create;
   try
-    for i := low(FItems) to High(FItems) do
+    for i := low(FItems^) to High(FItems^) do
     begin
-      p := FItems[i];
+      p := FItems^[i];
       if p <> nil then
       begin
         repeat
