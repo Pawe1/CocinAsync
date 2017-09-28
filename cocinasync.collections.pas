@@ -91,6 +91,7 @@ type
     function CalcDepth(item: PItem): integer; inline;
     function Remove(const Key : K; const wait : TSpinWait) : V; overload; inline;
     function SwapItemsArray(NewItems : PItemArray) : PItemArray;
+    procedure DisposeOfItems(pi: PItemArray);
   public
     type
       TDepth = record
@@ -401,8 +402,32 @@ begin
         end;
       end;
   finally
-    Dispose(pi);
+    DisposeOfItems(pi);
   end;
+end;
+
+
+procedure THash<K, V>.DisposeOfItems(pi: PItemArray);
+var
+  pNext: PItem;
+  Local_i: Integer;
+  i: Integer;
+  p: PItem;
+begin
+  for i := Low(pi^) to High(pi^) do
+    if pi^[i] <> nil then
+    begin
+      p := PItem(PItem(pi^[i])^.Next);
+      while p <> nil do
+      begin
+        pNext := p^.Next;
+        p^.Value := V(nil);
+        Dispose(PItem(p));
+        p := pNext;
+      end;
+      Dispose(PItem(pi^[i]));
+    end;
+  Dispose(pi);
 end;
 
 function THash<K, V>.DebugDepth: TDepth;
@@ -472,20 +497,7 @@ var
   p, pNext : PItem;
   i: Integer;
 begin
-  for i := Low(FItems^) to High(FItems^) do
-    if FItems^[i] <> nil then
-    begin
-      p := PItem(PItem(FItems^[i])^.Next);
-      while p <> nil do
-      begin
-        pNext := p^.Next;
-        p^.Value := V(nil);
-        Dispose(PItem(p));
-        p := pNext;
-      end;
-      Dispose(PItem(FItems^[i]));
-    end;
-  Dispose(FItems);
+  DisposeOfItems(FItems);
   inherited;
 end;
 
