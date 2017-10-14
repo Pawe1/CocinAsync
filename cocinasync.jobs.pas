@@ -56,7 +56,7 @@ type
 
   TJobManager = class
   public
-    class function CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
+    class function CreateJobs(RunnerCount : Cardinal = 0; MaxJobs : Integer = 4096) : IJobs;
     class function Job(const AJob : TProc) : IJob; overload; inline;
     class function Job<T>(const AJob : TFunc<T>) : IJob<T>; overload; inline;
     class function Execute(const AJob : TProc; AJobs : IJobs = nil) : IJob; overload; inline;
@@ -107,7 +107,7 @@ type
 
 { TJobManager }
 
-class function TJobManager.CreateJobs(RunnerCount : Cardinal = 0) : IJobs;
+class function TJobManager.CreateJobs(RunnerCount : Cardinal = 0; MaxJobs : Integer = 4096) : IJobs;
 var
   iCnt : Cardinal;
 begin
@@ -116,7 +116,7 @@ begin
   else
     iCnt := RunnerCount;
 
-  Result := TJobs.Create(iCnt);
+  Result := TJobs.Create(iCnt, MaxJobs);
 end;
 
 class function TJobManager.Execute(const AJob: TProc; AJobs : IJobs = nil): IJob;
